@@ -150,7 +150,7 @@ Supabase Auth는 **이메일 + 비밀번호**가 기본이다. 그래서 아이�
 
 | 테이블 | 읽기 (select) | 쓰기 (insert) | 수정 (update) | 삭제 (delete) |
 |---|---|---|---|---|
-| profiles | 로그인한 사람 | ✖ (트리거만) | 본인: `nickname`만* / 관리자: 전부 | ✖ |
+| profiles | 로그인한 사람 | ✖ (트리거만) | 본인: `nickname`만* (역할 변경은 SQL Editor에서만) | ✖ |
 | posts | 로그인한 사람 | 로그인한 사람, `author_id = auth.uid()`일 때만 | **본인 글만** (`author_id` 바꾸기 금지) | **본인 글** 또는 **관리자** |
 | lessons | 로그인한 사람 | 관리자만 | 관리자만 | 관리자만 |
 | homework | 로그인한 사람 | 관리자만 | 관리자만 | 관리자만 |
@@ -224,21 +224,23 @@ create policy "lessons_write" on lessons for all    to authenticated
    - **Auto Confirm User: 체크**
 3. 학생: 같은 방법으로 `s01@class52.local`, `s02@class52.local` … (비밀번호는 학생별로)
    - 학생 비밀번호 목록은 종이 또는 선생님 PC의 비공개 파일로만 관리 (이 저장소에 두지 않음)
-4. 관리자 지정: **SQL Editor**에서 한 번만 실행
-   ```sql
-   update profiles set role = 'admin' where username = 'redsionkim';
-   ```
-5. 확인: **Table Editor → profiles** 에서 redsionkim 은 `admin`, 나머지는 `student`
+4. 관리자 지정: **SQL Editor**에서 `supabase/make-admin.sql` 내용을 붙여넣고 Run (한 번만)
+5. 확인: 실행 결과 표(또는 **Table Editor → profiles**)에서 redsionkim 은 `admin`, 나머지는 `student`
 
 ### 5-6. 비밀번호 재설정
 - **Authentication → Users** → 해당 학생 줄의 `…` → **Reset password / Update password** (메일이 아닌 직접 변경 방식 사용)
 
-### 5-7. 급식용 비밀키 넣기 (M6에서)
-1. 나이스 교육정보 개방 포털(https://open.neis.go.kr) 가입 → **인증키 신청** (활용 용도: 학급 누리집 급식 안내)
-2. Supabase **Edge Functions → Secrets** (또는 Project Settings → Edge Functions)
-   - Name: `NEIS_API_KEY` / Value: 발급받은 키
-3. **Edge Functions → Deploy a new function → Via Editor**로 🤖가 만든 `meal` 함수 코드를 붙여넣어 배포
-   (또는 Supabase CLI를 `npx supabase`로 사용 — 그때 안내)
+### 5-7. 급식 함수 배포와 비밀키 넣기 (M6에서)
+1. **Edge Functions → Deploy a new function → Via Editor**
+   - 함수 이름: `meal` (정확히 이 이름)
+   - 편집기 내용을 모두 지우고 `supabase/functions/meal/index.ts` 내용을 붙여넣기 → **Deploy**
+2. 배포된 `meal` 함수 → **Details(또는 Settings)** → **Verify JWT (with legacy secret)**: **끄기** → 저장
+   - 로그인 확인은 함수 코드가 직접 합니다. (로그인 안 한 요청은 401로 거절)
+3. 나이스 교육정보 개방 포털(https://open.neis.go.kr) 가입 → 로그인 → **마이페이지 → 인증키 발급** (활용 용도: 학급 누리집 급식 안내)
+   - 인증키가 없어도 급식은 나오지만, 나이스가 "샘플 요청"으로 취급해 한 번에 5건까지만 줍니다.
+4. Supabase **Edge Functions → Secrets → Add new secret**
+   - Name: `NEIS_API_KEY` / Value: 발급받은 키 → **Save**
+   - 이 키는 이 화면에만 넣습니다. `.env.local`, 코드, 채팅에는 넣지 않습니다.
 
 ### 참고: 무료 플랜 주의점
 - **7일 동안 아무 요청이 없으면 프로젝트가 일시 정지**된다. 방학 뒤에는 대시보드에서 **Restore** 버튼을 누르면 된다.
@@ -278,7 +280,7 @@ create policy "lessons_write" on lessons for all    to authenticated
 - 날짜 선택 → 그날 중식 메뉴 (알레르기 번호는 작게 표시, 칼로리)
 - 주말·방학 등 데이터 없으면 "급식 정보가 없어요"
 - 흐름: 화면 → `supabase.functions.invoke('meal', { date })` → Edge Function이 로그인 여부 확인 → 나이스 `mealServiceDietInfo` 호출 (`ATPT_OFCDC_SC_CODE`, `SD_SCHUL_CODE`, `MLSV_YMD`) → 메뉴만 정리해서 돌려줌
-- 교육청 코드·학교 코드는 비밀이 아니므로 코드에 적어도 됨 (🧑‍🏫 학교 이름만 알려주면 🤖가 `schoolInfo` API로 찾아 줌)
+- 학교 코드는 `src/config.js`에 있음: 성남제일초등학교 = 경기도교육청 `J10` / 학교 `7551046` (나이스 `schoolInfo`로 확인)
 
 ---
 
@@ -358,5 +360,106 @@ create policy "lessons_write" on lessons for all    to authenticated
 ## 9. 나중에 고려할 것 (이번 범위 아님)
 - 게시글 댓글, 공지 상단 고정
 - 학생 본인 비밀번호 변경 화면
-- 급식 결과 캐시(같은 날짜 반복 호출 줄이기)
 - 시간표 표시 (나이스 `elsTimetable` API)
+
+---
+
+## 10. 만들면서 정한 것 (M2~M8)
+
+사용자에게 묻지 않고 이 문서의 원칙대로 정한 것들. 바꾸고 싶으면 말만 하면 된다.
+
+**로그인·계정**
+1. 아이디는 영어 소문자·숫자·`_` 2~30자. 대문자나 앞뒤 공백을 넣어도 소문자로 바꿔서 로그인한다 (`S01 ` → `s01`).
+2. 역할(role) 변경은 앱 화면이 아니라 **SQL Editor에서만** 한다 (`supabase/make-admin.sql`). 앱에 "관리자 지정" 버튼은 없다.
+3. 학생이 별명을 정할 수 있는 **내 정보(`#/me`)** 화면을 추가했다. 머리글의 내 아이디를 누르면 간다.
+4. 로그인 화면에 "비밀번호를 잊었으면 선생님께" 안내만 두고, 비밀번호 찾기·변경 기능은 만들지 않았다.
+
+**DB·보안**
+5. RLS 위에 **칼럼 권한**을 한 겹 더 뒀다: 게시글은 제목·내용만 쓰고 고칠 수 있어서 글쓴이·작성 시각을 조작할 수 없다. profiles는 별명만 고칠 수 있다.
+6. 글자 수 제한 (DB에서도 검사): 게시글 제목 50자·내용 2000자, 별명 10자, 수업 과목 20자·내용 2000자, 숙제 이름 50자·설명 1000자, 교시 1~8.
+7. 학생 계정을 지우면 그 학생의 글도 함께 지워진다.
+8. `schema.sql`은 여러 번 실행해도 안전하게 만들었고, 계정을 먼저 만들었어도 profiles를 채워 넣는다.
+9. SQL 보안 규칙을 컴퓨터 안의 작은 Postgres(PGlite)로 실험하는 `npm run test:rls`를 만들었다 (25개 항목).
+
+**게시판**
+10. 한 쪽에 20개씩, 최신 글이 위. 고친 글에는 "(고침)"을 표시한다.
+11. 관리자도 게시판에 글을 쓸 수 있다. 관리자는 남의 글을 **삭제만** 할 수 있고 고칠 수는 없다.
+12. 전화번호처럼 보이는 숫자가 있으면 **막지는 않고 확인창으로 경고**한다 (최종 대응은 관리자 삭제).
+
+**수업·숙제**
+13. 수업은 교시 순서, 교시 없는 수업은 맨 뒤. 날짜는 ◀ ▶ 버튼·달력·"오늘" 버튼으로 이동한다.
+14. 숙제 기본 화면은 오늘 마감 이후 숙제만 마감이 빠른 순서로 보여 준다. "지난 숙제 보기"는 최근 50개.
+15. 마감 표시 색: 오늘 마감 = 빨강, D-1·D-2 = 노랑, D-3 이상 = 초록, 마감 지남 = 흐리게.
+16. "오늘"은 보는 사람 기기의 날짜 기준이다.
+
+**식단**
+17. 학교 코드는 `src/config.js`에 두고 화면이 함수에 함께 보낸다. 함수는 **로그인한 사람만** 쓸 수 있고, 코드 형식을 검사한다.
+18. 나이스 인증키가 없어도 동작하게 만들었다 (샘플 요청은 한 번에 5건 제한, 하루 급식은 1~3건이라 충분). 정식 키 등록을 권장한다.
+19. 같은 날짜 급식은 함수가 10분 동안 기억해서 나이스에 다시 묻지 않는다.
+20. 메뉴 이름에서 `*`, `(초)` 같은 기호는 지우고, 알레르기 번호는 작게 표시한다. 번호 설명은 "알레르기 번호 보기"에 있다.
+21. 홈에는 중식만, 식단 화면에는 그날 나오는 급식(조식·중식·석식)을 모두 보여 준다.
+22. 로그인 확인은 함수 코드가 직접 하므로, Supabase의 "Verify JWT (legacy)" 설정은 끈다 (새 키 방식과 충돌하지 않도록).
+
+**배포·기타**
+23. `netlify.toml`: Node 24, 빌드 `npm run build` → `dist`. 공개용 변수 2개는 Netlify 비밀값 검사에서 제외해서 배포가 괜히 멈추지 않게 했다 (배포 크레딧 절약).
+24. 검색 엔진에 나오지 않도록 `noindex`를 설정했다. 다른 사이트 안에 끼워 넣는 것(iframe)도 막았다.
+25. `npm run check:secrets`: GitHub에 올라갈 파일과 `dist`에서 `sb_secret_` 키나 service_role 키를 찾는다. push 전에 🤖가 실행한다.
+
+---
+
+## 11. 🧑‍🏫 선생님 체크리스트 (순서대로)
+
+> 비밀번호와 키는 **Supabase·나이스·Netlify 화면에만** 입력합니다. 파일이나 채팅에는 쓰지 않습니다.
+
+### A. Supabase 데이터베이스
+- [ ] **1. 테이블과 보안 규칙 만들기**: SQL Editor → New query → `supabase/schema.sql` 전체 붙여넣기 → Run → "Success" 확인
+- [ ] **2. 확인**: Table Editor에 `profiles`, `posts`, `lessons`, `homework` 4개가 있고 모두 **RLS enabled**
+- [ ] **3. 계정 3개 만들기**: Authentication → Users → Add user → Create new user, **Auto Confirm User 체크**
+  - `redsionkim@class52.local` (관리자)
+  - `s01@class52.local`, `s02@class52.local` (테스트 학생)
+- [ ] **4. 관리자 지정**: SQL Editor에서 `supabase/make-admin.sql` Run → 결과 표에서 redsionkim만 `admin`
+
+### B. 내 컴퓨터에서 확인 (`npm run dev` → http://localhost:5173)
+- [ ] **5. 로그인**: 로그인 안 한 상태로 `#/board`를 직접 입력하면 로그인 화면으로 간다 / 틀린 비밀번호는 "아이디 또는 비밀번호가 달라요" / `s01` 로그인 후 새로고침해도 유지
+- [ ] **6. 게시판**: `s01`로 글쓰기 (제목에 `<b>굵게</b>`를 넣어 보면 글자 그대로 보임) → 주소창의 글 번호(`#/board/1`의 `1`)를 적어 두기
+- [ ] **7. 🔒 보안 실험 (학생이 남의 글 지우기 시도)**: 로그아웃하고 `s02`로 로그인 → 그 글에 수정·삭제 버튼이 없는지 확인 → **F12 → Console** 탭에서 아래를 한 줄씩 붙여넣기
+  (붙여넣기가 막히면 `allow pasting`이라고 입력하고 Enter. `1`은 6번에서 적은 글 번호로 바꾸기)
+  ```js
+  const { supabase } = await import('/src/supabase.js');
+
+  // 실험 1: 남의 글 삭제 → 기대 결과 data: [] (0건, 아무것도 안 지워짐)
+  await supabase.from('posts').delete().eq('id', 1).select();
+
+  // 실험 2: 남의 글 수정 → 기대 결과 data: []
+  await supabase.from('posts').update({ title: '해킹' }).eq('id', 1).select();
+
+  // 실험 3: 스스로 관리자 되기 → 기대 결과 error (permission denied)
+  await supabase.from('profiles').update({ role: 'admin' }).eq('username', 's02').select();
+
+  // 실험 4: 학생이 수업 쓰기 → 기대 결과 error (row-level security)
+  await supabase.from('lessons').insert({ lesson_date: '2026-10-01', subject: '실험', content: '학생이 쓰기' }).select();
+  ```
+  → 새로고침해서 글이 그대로 있으면 **성공**
+- [ ] **8. 로그아웃 상태 실험**: 로그아웃 → Console에서 `const { supabase } = await import('/src/supabase.js');` 다음 `await supabase.from('posts').select();` → 기대 결과 **error (permission denied)**
+- [ ] **9. 관리자**: `redsionkim`으로 로그인 → `s01` 글에 삭제 버튼만 있고, 누르면 지워짐 / 오늘의 수업·숙제에 입력 칸이 보이고 추가·수정·삭제가 됨 / 숙제에 D-표시
+
+### C. 급식
+- [ ] **10. 급식 함수 배포**: Edge Functions → Deploy a new function → Via Editor → 이름 `meal` → `supabase/functions/meal/index.ts` 내용 붙여넣기 → Deploy
+- [ ] **11. JWT 설정 끄기**: `meal` 함수 → Details(Settings) → **Verify JWT (with legacy secret) 끄기** → 저장
+- [ ] **12. 확인**: 로컬 누리집 **식단** 메뉴에서 오늘(또는 지난 평일) 메뉴가 나이스·학교 누리집 식단과 같은지 / 토·일요일은 "급식 정보가 없어요"
+- [ ] **13. 나이스 인증키**: https://open.neis.go.kr 가입 → 마이페이지 → 인증키 발급 → Supabase Edge Functions → **Secrets**에 `NEIS_API_KEY` 추가 → 식단이 계속 잘 나오는지 확인
+
+### D. 배포
+- [ ] **14. GitHub 저장소**: https://github.com/new 에서 **Private**, 이름 `class-5-2`, README 등 체크 없이 만들기 → 저장소 주소를 🤖에게 알려 주기 (🤖가 remote 연결)
+- [ ] **15. "올려줘"** → 🤖가 비밀키 검사·빌드 후 `git push`
+- [ ] **16. Netlify 연결**: Add new project → Import an existing project → GitHub → `class-5-2`
+  - 빌드 설정은 `netlify.toml`에서 자동으로 채워짐 (`npm run build` / `dist`)
+  - **Deploy 누르기 전에** Environment variables에 `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` 두 개 입력 (값은 `.env.local`과 같게, 공개 키만)
+  - Deploy
+- [ ] **17. 배포 주소에서 확인**: 5번(로그인), 6번(글쓰기), 12번(식단)을 Netlify 주소에서 한 번 더
+  - 7번 콘솔 실험은 **내 컴퓨터(`npm run dev`)에서만** 됩니다. 배포 주소에서는 안 해도 됩니다.
+- [ ] **18. 나머지 학생 계정**: `s03@class52.local` … 3번과 같은 방법 (Auto Confirm 체크). 테스트로 쓴 글은 관리자로 지우기
+
+### 알아 둘 것
+- 방학 등으로 7일 넘게 아무도 접속하지 않으면 Supabase가 멈춥니다 → 대시보드에서 **Restore**
+- 학생 비밀번호 변경: Authentication → Users → 학생 줄 `…` → 비밀번호 변경
