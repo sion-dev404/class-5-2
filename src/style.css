@@ -4,13 +4,23 @@
   --text: #1f2933;
   --muted: #6b7280;
   --primary: #2f6fed;
+  --primary-dark: #1f56c4;
   --border: #e3e6ea;
   --error-bg: #fdecec;
   --error-text: #b42318;
+  --warn-bg: #fff6e0;
+  --warn-text: #8a5a00;
+  --ok-bg: #e7f6ec;
+  --ok-text: #1b7a3d;
+  --radius: 10px;
 }
 
 * {
   box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
 }
 
 body {
@@ -19,13 +29,30 @@ body {
   color: var(--text);
   font-family: system-ui, -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
   line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
 }
+
+a {
+  color: var(--primary);
+}
+
+h1 {
+  font-size: 1.5rem;
+  margin: 0 0 16px;
+}
+
+h2 {
+  font-size: 1.15rem;
+  margin: 0 0 12px;
+}
+
+/* ---------- 머리글 ---------- */
 
 .site-header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 24px;
+  gap: 8px 20px;
   padding: 12px 16px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -44,37 +71,411 @@ body {
   gap: 4px;
 }
 
-.menu a {
+.menu a,
+.user-area a {
   padding: 6px 12px;
   border-radius: 999px;
   color: var(--muted);
   text-decoration: none;
+  white-space: nowrap;
 }
 
-.menu a:hover {
+.menu a:hover,
+.user-area a:hover {
   background: var(--bg);
 }
 
-.menu a.active {
+.menu a.active,
+.user-area a.active {
   background: var(--primary);
   color: #fff;
+}
+
+.user-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 
 main {
   max-width: 800px;
   margin: 0 auto;
-  padding: 24px 16px;
+  padding: 24px 16px 48px;
 }
+
+/* ---------- 알림 문장 ---------- */
 
 .muted {
   color: var(--muted);
 }
 
+.error,
+.warn,
+.ok {
+  padding: 10px 14px;
+  border-radius: var(--radius);
+}
+
 .error {
-  max-width: 800px;
-  margin: 16px auto 0;
-  padding: 12px 16px;
   background: var(--error-bg);
   color: var(--error-text);
+}
+
+.warn {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+
+.ok {
+  background: var(--ok-bg);
+  color: var(--ok-text);
+}
+
+#notice .error {
+  max-width: 800px;
+  margin: 16px auto 0;
+}
+
+/* ---------- 카드, 목록 ---------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.list > li {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.list > li:last-child {
+  border-bottom: none;
+}
+
+.list a.row-link {
+  display: block;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.list a.row-link:hover .row-title {
+  text-decoration: underline;
+}
+
+.row-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.row-meta {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.body-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 8px 0 0;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.pager {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: var(--bg);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.badge.soon {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+
+.badge.today {
+  background: var(--error-bg);
+  color: var(--error-text);
+}
+
+.badge.later {
+  background: var(--ok-bg);
+  color: var(--ok-text);
+}
+
+.past {
+  opacity: 0.55;
+}
+
+dl.info {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+}
+
+dl.info dt {
+  color: var(--muted);
+}
+
+dl.info dd {
+  margin: 0;
+}
+
+/* ---------- 입력, 버튼 ---------- */
+
+form label {
+  display: block;
+  margin: 12px 0 4px;
+  font-weight: 600;
+}
+
+form label:first-child {
+  margin-top: 0;
+}
+
+input,
+textarea,
+select {
+  width: 100%;
+  padding: 10px 12px;
+  font: inherit;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+textarea {
+  min-height: 160px;
+  resize: vertical;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.field-row > div {
+  flex: 1 1 140px;
+}
+
+.char-count {
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-align: right;
+}
+
+button {
+  font: inherit;
+  padding: 9px 18px;
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--primary-dark);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+button.secondary {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+button.secondary:hover {
+  background: var(--bg);
+}
+
+button.danger {
+  background: var(--surface);
+  color: var(--error-text);
+  border-color: #f3b8b3;
+}
+
+button.danger:hover {
+  background: var(--error-bg);
+}
+
+button.small {
+  padding: 4px 12px;
+  font-size: 0.9rem;
+}
+
+a.button {
+  display: inline-block;
+  padding: 9px 18px;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  text-decoration: none;
+}
+
+a.button:hover {
+  background: var(--primary-dark);
+}
+
+/* ---------- 날짜 이동 ---------- */
+
+.date-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.date-nav input {
+  width: auto;
+  flex: 0 1 180px;
+}
+
+/* ---------- 로그인 ---------- */
+
+.card.login {
+  max-width: 360px;
+  margin: 40px auto;
+  padding: 24px;
+}
+
+.card.login h1 {
+  font-size: 1.3rem;
+  text-align: center;
+}
+
+.card.login button[type='submit'] {
+  width: 100%;
+  margin-top: 16px;
+}
+
+/* ---------- 홈 ---------- */
+
+.home-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.home-grid .card {
+  margin: 0;
+}
+
+.home-grid h2 a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.home-grid .list {
+  margin: 0;
+  border: none;
+}
+
+.home-grid .list > li {
+  padding: 8px 0;
+}
+
+/* ---------- 식단 ---------- */
+
+.dishes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.dishes li {
+  padding: 4px 0;
+}
+
+.allergens {
+  margin-left: 6px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+details.legend {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* ---------- 휴대폰 ---------- */
+
+@media (max-width: 600px) {
+  .site-header {
+    padding: 10px 12px;
+  }
+
+  .menu {
+    order: 3;
+    width: 100%;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+
+  main {
+    padding: 16px 12px 40px;
+  }
+
+  h1 {
+    font-size: 1.3rem;
+  }
 }
