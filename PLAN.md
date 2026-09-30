@@ -10,12 +10,9 @@
 ```
 [브라우저]  ── Vite로 만든 정적 화면 (Netlify에 배포)
     │
-    ├─ 로그인 · 게시판 · 수업 · 숙제 ──▶ [Supabase]
-    │                                     ├ Auth (로그인)
-    │                                     ├ Postgres DB + RLS (보안 규칙)
-    │                                     └ Edge Function "meal" (급식 중계)
-    │                                               │
-    └─ 식단 ──▶ Edge Function "meal" ──────────────▶ [나이스 교육정보 개방 포털 API]
+    └─ 로그인 · 게시판 · 수업 · 숙제 · 식단 ──▶ [Supabase]
+                                              ├ Auth (로그인)
+                                              └ Postgres DB + RLS (보안 규칙)
 ```
 
 | 구성 | 선택 | 이유 |
@@ -23,7 +20,7 @@
 | 화면 | Vite + 순수 JavaScript (프레임워크 없음) | 가볍고, 코드를 읽고 고치기 쉬움 |
 | 페이지 이동 | 해시 라우팅 (`#/board`, `#/lessons` …) | Netlify에서 새로고침해도 404가 안 남, 별도 설정 불필요 |
 | 로그인 · DB | Supabase 무료 플랜 | Auth + Postgres + RLS를 한 곳에서 |
-| 급식 | Supabase Edge Function이 나이스 API를 대신 호출 | 나이스 인증키를 브라우저·GitHub에 노출하지 않음, CORS 문제 회피, Netlify 크레딧 소모 없음 |
+| 급식 | 관리자가 날짜별로 직접 입력 (`meals` 테이블) | 외부 API·인증키 없이 단순하게, 수업·숙제와 같은 방식 |
 | 배포 | Netlify (GitHub 연동) | `git push` 때만 배포 → "올려줘" 할 때만 push |
 
 ### 폴더 구조 (예정)
@@ -44,7 +41,7 @@ class-5-2/
 │  └─ style.css
 ├─ supabase/
 │  ├─ schema.sql         # 테이블 + RLS 정책 (SQL Editor에 붙여넣기용, 비밀 없음)
-│  └─ functions/meal/index.ts
+│  └─ make-admin.sql     # 관리자 지정
 ├─ .env.example          # 변수 이름만, 값 없음
 ├─ .gitignore            # .env, .env.local 포함
 └─ PLAN.md
@@ -91,7 +88,6 @@ Supabase Auth는 **이메일 + 비밀번호**가 기본이다. 그래서 아이�
 | Supabase **anon / publishable** 키 | ✅ 공개 가능 (RLS가 지켜 줌) | `.env.local`(로컬), Netlify 환경변수 |
 | Supabase **service_role / secret** 키 | ❌ 절대 비공개 | **어디에도 넣지 않는다.** 이 프로젝트는 쓸 일이 없음 |
 | DB 비밀번호 | ❌ 비공개 | 선생님 비밀번호 관리자에만 |
-| 나이스 API 인증키 | ❌ 비공개로 취급 | Supabase **Edge Function Secrets**에만 |
 | 계정 비밀번호 | ❌ 비공개 | 선생님만 앎. 코드·파일·SQL 어디에도 없음 |
 
 - `.gitignore`에 `.env`, `.env.*`(단 `.env.example` 제외)를 넣고, **첫 커밋 전에** 확인한다.
@@ -142,7 +138,13 @@ Supabase Auth는 **이메일 + 비밀번호**가 기본이다. 그래서 아이�
 | due_date | date | 마감일 |
 | created_at | timestamptz | |
 
-급식은 **DB에 저장하지 않는다** (매번 나이스에서 받아 옴).
+**meals** — 급식 (관리자가 직접 입력, 하루에 하나)
+| 칼럼 | 타입 | 설명 |
+|---|---|---|
+| id | bigint (PK) | |
+| meal_date | date, unique | 급식 날짜 |
+| menu | text, 1~1000자 | 한 줄에 한 가지 음식 |
+| created_at | timestamptz | |
 
 ### 보안 규칙 (RLS) 요약
 
@@ -154,6 +156,7 @@ Supabase Auth는 **이메일 + 비밀번호**가 기본이다. 그래서 아이�
 | posts | 로그인한 사람 | 로그인한 사람, `author_id = auth.uid()`일 때만 | **본인 글만** (`author_id` 바꾸기 금지) | **본인 글** 또는 **관리자** |
 | lessons | 로그인한 사람 | 관리자만 | 관리자만 | 관리자만 |
 | homework | 로그인한 사람 | 관리자만 | 관리자만 | 관리자만 |
+| meals | 로그인한 사람 | 관리자만 | 관리자만 | 관리자만 |
 
 \* 학생이 `role`을 스스로 `admin`으로 바꾸지 못하도록 **칼럼 단위 권한**(`grant update (nickname) on profiles to authenticated`)으로 막는다.
 
@@ -230,18 +233,6 @@ create policy "lessons_write" on lessons for all    to authenticated
 ### 5-6. 비밀번호 재설정
 - **Authentication → Users** → 해당 학생 줄의 `…` → **Reset password / Update password** (메일이 아닌 직접 변경 방식 사용)
 
-### 5-7. 급식 함수 배포와 비밀키 넣기 (M6에서)
-1. **Edge Functions → Deploy a new function → Via Editor**
-   - 함수 이름: `meal` (정확히 이 이름)
-   - 편집기 내용을 모두 지우고 `supabase/functions/meal/index.ts` 내용을 붙여넣기 → **Deploy**
-2. 배포된 `meal` 함수 → **Details(또는 Settings)** → **Verify JWT (with legacy secret)**: **끄기** → 저장
-   - 로그인 확인은 함수 코드가 직접 합니다. (로그인 안 한 요청은 401로 거절)
-3. 나이스 교육정보 개방 포털(https://open.neis.go.kr) 가입 → 로그인 → **마이페이지 → 인증키 발급** (활용 용도: 학급 누리집 급식 안내)
-   - 인증키가 없어도 급식은 나오지만, 나이스가 "샘플 요청"으로 취급해 한 번에 5건까지만 줍니다.
-4. Supabase **Edge Functions → Secrets → Add new secret**
-   - Name: `NEIS_API_KEY` / Value: 발급받은 키 → **Save**
-   - 이 키는 이 화면에만 넣습니다. `.env.local`, 코드, 채팅에는 넣지 않습니다.
-
 ### 참고: 무료 플랜 주의점
 - **7일 동안 아무 요청이 없으면 프로젝트가 일시 정지**된다. 방학 뒤에는 대시보드에서 **Restore** 버튼을 누르면 된다.
 - 용량: DB 500MB — 글자 위주 학급 누리집에는 충분.
@@ -277,10 +268,9 @@ create policy "lessons_write" on lessons for all    to authenticated
 - 관리자: 추가/수정/삭제
 
 ### 식단
-- 날짜 선택 → 그날 중식 메뉴 (알레르기 번호는 작게 표시, 칼로리)
-- 주말·방학 등 데이터 없으면 "급식 정보가 없어요"
-- 흐름: 화면 → `supabase.functions.invoke('meal', { date })` → Edge Function이 로그인 여부 확인 → 나이스 `mealServiceDietInfo` 호출 (`ATPT_OFCDC_SC_CODE`, `SD_SCHUL_CODE`, `MLSV_YMD`) → 메뉴만 정리해서 돌려줌
-- 학교 코드는 `src/config.js`에 있음: 성남제일초등학교 = 경기도교육청 `J10` / 학교 `7551046` (나이스 `schoolInfo`로 확인)
+- 날짜 선택(◀ 오늘 ▶ + 달력) → 그날 메뉴 (한 줄에 한 가지)
+- 등록 안 된 날은 "이 날은 등록된 급식이 없어요"
+- 관리자: 그날 메뉴 입력·수정·삭제 (하루에 하나, 저장하면 덮어씀)
 
 ---
 
@@ -334,10 +324,9 @@ create policy "lessons_write" on lessons for all    to authenticated
   - 학생으로 로그인 시 작성 버튼 없음 / 콘솔로 insert 시도 → **권한 오류**
   - 숙제 마감일이 D-표시로 보이고, 지난 숙제는 회색
 
-### M6. 식단 🤖 → 🧑‍🏫
-- 🧑‍🏫 나이스 인증키 발급, 학교 이름 알려주기, Secret 등록 (5-7)
-- 🤖 Edge Function `meal` 작성 → 🧑‍🏫 배포 → 🤖 식단 화면 연결
-- ✅ 확인: 오늘/다른 날짜 급식이 나이스 홈페이지 내용과 같음 / 주말은 "정보 없음" / 로그아웃 상태에서 함수 직접 호출 시 401
+### M6. 식단 🤖
+- 관리자가 날짜별로 메뉴를 직접 입력하는 화면 (처음엔 나이스 자동 연동으로 만들었다가 직접 입력으로 바꿈)
+- ✅ 확인: 관리자로 오늘 메뉴 입력 → 홈과 식단에 보임 / 학생에게는 입력 칸이 없음
 
 ### M7. 홈 요약 · 다듬기 🤖
 - 홈 화면 요약, 휴대폰 크기 확인, 빈 목록·오류 문구
@@ -393,23 +382,21 @@ create policy "lessons_write" on lessons for all    to authenticated
 16. "오늘"은 보는 사람 기기의 날짜 기준이다.
 
 **식단**
-17. 학교 코드는 `src/config.js`에 두고 화면이 함수에 함께 보낸다. 함수는 **로그인한 사람만** 쓸 수 있고, 코드 형식을 검사한다.
-18. 나이스 인증키가 없어도 동작하게 만들었다 (샘플 요청은 한 번에 5건 제한, 하루 급식은 1~3건이라 충분). 정식 키 등록을 권장한다.
-19. 같은 날짜 급식은 함수가 10분 동안 기억해서 나이스에 다시 묻지 않는다.
-20. 메뉴 이름에서 `*`, `(초)` 같은 기호는 지우고, 알레르기 번호는 작게 표시한다. 번호 설명은 "알레르기 번호 보기"에 있다.
-21. 홈에는 중식만, 식단 화면에는 그날 나오는 급식(조식·중식·석식)을 모두 보여 준다.
-22. 로그인 확인은 함수 코드가 직접 하므로, Supabase의 "Verify JWT (legacy)" 설정은 끈다 (새 키 방식과 충돌하지 않도록).
+17. 급식은 관리자가 날짜별로 직접 입력한다. 하루에 하나만 저장되고, 같은 날 다시 저장하면 고쳐진다.
+18. 메뉴는 한 줄에 한 가지. 빈 줄과 앞뒤 공백은 저장할 때 지운다.
+19. 홈에는 오늘 메뉴를, 식단 화면에는 고른 날짜의 메뉴를 보여 준다.
+20. 나이스 연동과 Edge Function은 쓰지 않는다 (인증키·함수 배포가 필요 없음).
 
 **배포·기타**
-23. `netlify.toml`: Node 24, 빌드 `npm run build` → `dist`. 공개용 변수 2개는 Netlify 비밀값 검사에서 제외해서 배포가 괜히 멈추지 않게 했다 (배포 크레딧 절약).
-24. 검색 엔진에 나오지 않도록 `noindex`를 설정했다. 다른 사이트 안에 끼워 넣는 것(iframe)도 막았다.
-25. `npm run check:secrets`: GitHub에 올라갈 파일과 `dist`에서 `sb_secret_` 키나 service_role 키를 찾는다. push 전에 🤖가 실행한다.
+21. `netlify.toml`: Node 24, 빌드 `npm run build` → `dist`. 공개용 변수 2개는 Netlify 비밀값 검사에서 제외해서 배포가 괜히 멈추지 않게 했다 (배포 크레딧 절약).
+22. 검색 엔진에 나오지 않도록 `noindex`를 설정했다. 다른 사이트 안에 끼워 넣는 것(iframe)도 막았다.
+23. `npm run check:secrets`: GitHub에 올라갈 파일과 `dist`에서 `sb_secret_` 키나 service_role 키를 찾는다. push 전에 🤖가 실행한다.
 
 ---
 
 ## 11. 🧑‍🏫 선생님 체크리스트 (순서대로)
 
-> 비밀번호와 키는 **Supabase·나이스·Netlify 화면에만** 입력합니다. 파일이나 채팅에는 쓰지 않습니다.
+> 비밀번호와 키는 **Supabase·Netlify 화면에만** 입력합니다. 파일이나 채팅에는 쓰지 않습니다.
 
 ### A. Supabase 데이터베이스
 - [ ] **1. 테이블과 보안 규칙 만들기**: SQL Editor → New query → `supabase/schema.sql` 전체 붙여넣기 → Run → "Success" 확인
@@ -444,21 +431,19 @@ create policy "lessons_write" on lessons for all    to authenticated
 - [ ] **9. 관리자**: `redsionkim`으로 로그인 → `s01` 글에 삭제 버튼만 있고, 누르면 지워짐 / 오늘의 수업·숙제에 입력 칸이 보이고 추가·수정·삭제가 됨 / 숙제에 D-표시
 
 ### C. 급식
-- [ ] **10. 급식 함수 배포**: Edge Functions → Deploy a new function → Via Editor → 이름 `meal` → `supabase/functions/meal/index.ts` 내용 붙여넣기 → Deploy
-- [ ] **11. JWT 설정 끄기**: `meal` 함수 → Details(Settings) → **Verify JWT (with legacy secret) 끄기** → 저장
-- [ ] **12. 확인**: 로컬 누리집 **식단** 메뉴에서 오늘(또는 지난 평일) 메뉴가 나이스·학교 누리집 식단과 같은지 / 토·일요일은 "급식 정보가 없어요"
-- [ ] **13. 나이스 인증키**: https://open.neis.go.kr 가입 → 마이페이지 → 인증키 발급 → Supabase Edge Functions → **Secrets**에 `NEIS_API_KEY` 추가 → 식단이 계속 잘 나오는지 확인
+- [ ] **10. 급식 테이블 추가**: SQL Editor에서 `supabase/schema.sql` 전체를 **다시** Run (여러 번 실행해도 안전, 기존 글은 그대로) → Table Editor에 `meals`가 생기고 RLS enabled
+- [ ] **11. 확인**: 관리자로 **식단** 메뉴에서 오늘 메뉴 입력 → 홈에도 보임 / 학생 계정에는 입력 칸이 없음
 
 ### D. 배포
-- [ ] **14. GitHub 저장소**: https://github.com/new 에서 **Private**, 이름 `class-5-2`, README 등 체크 없이 만들기 → 저장소 주소를 🤖에게 알려 주기 (🤖가 remote 연결)
-- [ ] **15. "올려줘"** → 🤖가 비밀키 검사·빌드 후 `git push`
-- [ ] **16. Netlify 연결**: Add new project → Import an existing project → GitHub → `class-5-2`
+- [ ] **12. GitHub 저장소**: https://github.com/new 에서 **Private**, 이름 `class-5-2`, README 등 체크 없이 만들기 → 저장소 주소를 🤖에게 알려 주기 (🤖가 remote 연결)
+- [ ] **13. "올려줘"** → 🤖가 비밀키 검사·빌드 후 `git push`
+- [ ] **14. Netlify 연결**: Add new project → Import an existing project → GitHub → `class-5-2`
   - 빌드 설정은 `netlify.toml`에서 자동으로 채워짐 (`npm run build` / `dist`)
   - **Deploy 누르기 전에** Environment variables에 `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` 두 개 입력 (값은 `.env.local`과 같게, 공개 키만)
   - Deploy
-- [ ] **17. 배포 주소에서 확인**: 5번(로그인), 6번(글쓰기), 12번(식단)을 Netlify 주소에서 한 번 더
+- [ ] **15. 배포 주소에서 확인**: 5번(로그인), 6번(글쓰기), 11번(식단)을 Netlify 주소에서 한 번 더
   - 7번 콘솔 실험은 **내 컴퓨터(`npm run dev`)에서만** 됩니다. 배포 주소에서는 안 해도 됩니다.
-- [ ] **18. 나머지 학생 계정**: `s03@class52.local` … 3번과 같은 방법 (Auto Confirm 체크). 테스트로 쓴 글은 관리자로 지우기
+- [ ] **16. 나머지 학생 계정**: `s03@class52.local` … 3번과 같은 방법 (Auto Confirm 체크). 테스트로 쓴 글은 관리자로 지우기
 
 ### 알아 둘 것
 - 방학 등으로 7일 넘게 아무도 접속하지 않으면 Supabase가 멈춥니다 → 대시보드에서 **Restore**
