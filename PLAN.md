@@ -95,7 +95,7 @@ Supabase Auth는 **이메일 + 비밀번호**가 기본이다. 그래서 아이�
 | 계정 비밀번호 | ❌ 비공개 | 선생님만 앎. 코드·파일·SQL 어디에도 없음 |
 
 - `.gitignore`에 `.env`, `.env.*`(단 `.env.example` 제외)를 넣고, **첫 커밋 전에** 확인한다.
-- `.env.example`에는 이름만: `VITE_SUPABASE_URL=` / `VITE_SUPABASE_ANON_KEY=`
+- `.env.example`에는 이름만: `VITE_SUPABASE_URL=` / `VITE_SUPABASE_PUBLISHABLE_KEY=`
 - `VITE_`로 시작하는 변수는 화면 코드에 그대로 들어가므로 **공개 키만** `VITE_`를 붙인다.
 - 커밋 전 점검: `git diff --cached`에 `service_role`, `sb_secret_`, 키처럼 긴 문자열이 없는지 🤖가 확인.
 
@@ -198,7 +198,7 @@ create policy "lessons_write" on lessons for all    to authenticated
 3. 프로젝트 폴더에 `.env.local` 파일을 **직접** 만들고 붙여넣기
    ```
    VITE_SUPABASE_URL=https://xxxx.supabase.co
-   VITE_SUPABASE_ANON_KEY=복사한_공개키
+   VITE_SUPABASE_PUBLISHABLE_KEY=복사한_공개키
    ```
 4. ⚠️ 같은 화면의 **service_role / secret** 키는 복사하지 않는다. 채팅에도 붙여넣지 않는다.
 
@@ -215,6 +215,8 @@ create policy "lessons_write" on lessons for all    to authenticated
 3. **Table Editor**에서 profiles / posts / lessons / homework 가 보이고, 각 테이블에 **RLS enabled** 표시가 있는지 확인
 
 ### 5-5. 계정 만들기 (비밀번호는 여기서만 입력)
+> ⚠️ **반드시 5-4(schema.sql 실행) 다음에** 만든다. 계정이 생길 때 `profiles`에 자동으로 한 줄을 만드는 트리거가 schema.sql 안에 있기 때문이다.
+
 1. **Authentication → Users → Add user → Create new user**
 2. 관리자:
    - Email: `redsionkim@class52.local`
@@ -345,7 +347,7 @@ create policy "lessons_write" on lessons for all    to authenticated
 3. 🧑‍🏫 "올려줘" → 🤖 `git push`
 4. 🧑‍🏫 Netlify: **Add new site → Import from GitHub** → 저장소 선택
    - Build command: `npm run build` / Publish directory: `dist`
-   - **Environment variables**에 `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` 입력 (공개 키 2개만)
+   - **Environment variables**에 `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` 입력 (공개 키 2개만)
 5. ✅ 확인: Netlify 주소에서 M3~M6 확인 항목을 한 번 더
 6. 🧑‍🏫 나머지 학생 계정 생성 (5-5)
 
