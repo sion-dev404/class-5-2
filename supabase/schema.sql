@@ -144,6 +144,45 @@ create table if not exists public.meals (
 );
 
 
+-- ---------------------------------------------------------------------
+-- 6-3. post_files : 게시글 첨부 파일 목록
+--      실제 파일은 Supabase Storage의 비공개 보관함 "attachments"에 있고,
+--      여기에는 원래 파일 이름·크기·종류와 보관 위치(path)만 적습니다.
+--      보관 위치 모양: 올린사람ID/글번호/무작위이름.확장자
+-- ---------------------------------------------------------------------
+create table if not exists public.post_files (
+  id          bigint generated always as identity primary key,
+  post_id     bigint not null references public.posts (id) on delete cascade,     -- 어느 글의 파일인지 (글이 지워지면 함께 지워짐)
+  uploader_id uuid not null default auth.uid() references public.profiles (id) on delete cascade, -- 올린 사람
+  path        text not null unique,                                              -- 보관 위치
+  name        text not null check (char_length(name) between 1 and 200),         -- 원래 파일 이름 (내려받을 때 쓰는 이름)
+  size        integer not null check (size between 1 and 10485760),             -- 크기 (최대 10MB)
+  mime        text not null,                                                     -- 파일 종류
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists post_files_post_id_idx on public.post_files (post_id);
+
+-- 글 하나에 파일은 최대 5개
+create or replace function public.limit_post_files()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if (select count(*) from public.post_files where post_id = new.post_id) >= 5 then
+    raise exception '글 하나에 파일은 5개까지 올릴 수 있어요.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists post_files_limit on public.post_files;
+create trigger post_files_limit
+  before insert on public.post_files
+  for each row execute function public.limit_post_files();
+
+
 -- =====================================================================
 -- 7. 권한 : "어떤 종류의 작업을 할 수 있나" (1차 잠금)
 --    anon = 로그인 안 한 사람 → 아무것도 못 함
@@ -162,6 +201,11 @@ grant insert (title, content), update (title, content) on public.posts to authen
 -- lessons, homework, meals : 권한은 열어 두되, 실제로는 아래 RLS가 관리자만 통과시킴
 grant select, insert, update, delete on public.lessons, public.homework, public.meals to authenticated;
 
+-- post_files : 읽기, 올리기(이름·위치·크기·종류만), 지우기. 고치기는 없음
+revoke all on public.post_files from anon, authenticated;
+grant select, delete on public.post_files to authenticated;
+grant insert (post_id, path, name, size, mime) on public.post_files to authenticated;
+
 
 -- =====================================================================
 -- 8. RLS 보안 규칙 : "어떤 줄을 읽고 쓸 수 있나" (2차 잠금)
@@ -172,6 +216,7 @@ alter table public.posts    enable row level security;
 alter table public.lessons  enable row level security;
 alter table public.homework enable row level security;
 alter table public.meals    enable row level security;
+alter table public.post_files enable row level security;
 
 -- ---- profiles ----
 drop policy if exists "profiles: 로그인하면 읽기" on public.profiles;
@@ -242,6 +287,82 @@ create policy "meals: 관리자만 쓰고 고치고 지우기" on public.meals
   for all to authenticated
   using ((select public.is_admin()))
   with check ((select public.is_admin()));
+
+-- ---- post_files ----
+drop policy if exists "post_files: 로그인하면 읽기" on public.post_files;
+create policy "post_files: 로그인하면 읽기" on public.post_files
+  for select to authenticated
+  using (true);
+
+-- 내 글에, 내 이름으로, 내 폴더(내ID/글번호/...)에 있는 파일만 등록
+drop policy if exists "post_files: 내 글에만 올리기" on public.post_files;
+create policy "post_files: 내 글에만 올리기" on public.post_files
+  for insert to authenticated
+  with check (
+    uploader_id = (select auth.uid())
+    and exists (select 1 from public.posts p where p.id = post_id and p.author_id = (select auth.uid()))
+    and path like (select auth.uid())::text || '/' || post_id::text || '/%'
+  );
+
+drop policy if exists "post_files: 올린 사람 또는 관리자만 지우기" on public.post_files;
+create policy "post_files: 올린 사람 또는 관리자만 지우기" on public.post_files
+  for delete to authenticated
+  using (uploader_id = (select auth.uid()) or (select public.is_admin()));
+
+
+-- =====================================================================
+-- 9. 파일 보관함 (Supabase Storage) : "attachments"
+--    · 비공개(public = false) → 로그인한 우리 반만 내려받을 수 있음
+--    · 파일 하나 최대 10MB, 사진·문서 종류만 허용 (실행 파일 등은 거절)
+-- =====================================================================
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'attachments', 'attachments', false, 10485760,
+  array[
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+    'application/pdf', 'text/plain',
+    'application/x-hwp', 'application/vnd.hancom.hwpx',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+  ]
+)
+on conflict (id) do update set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+-- 로그인한 사람은 누구나 첨부 파일을 내려받을 수 있음 (다른 친구 글의 파일도)
+drop policy if exists "attachments: 로그인하면 내려받기" on storage.objects;
+create policy "attachments: 로그인하면 내려받기" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'attachments');
+
+-- 내 폴더(내ID/내글번호/...)에만 올리기
+drop policy if exists "attachments: 내 글 폴더에만 올리기" on storage.objects;
+create policy "attachments: 내 글 폴더에만 올리기" on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'attachments'
+    and (storage.foldername(name))[1] = (select auth.uid())::text
+    and case
+          when (storage.foldername(name))[2] ~ '^[0-9]+$' then exists (
+            select 1 from public.posts p
+            where p.id = ((storage.foldername(name))[2])::bigint
+              and p.author_id = (select auth.uid())
+          )
+          else false
+        end
+  );
+
+-- 내가 올린 파일, 또는 관리자만 지우기
+drop policy if exists "attachments: 올린 사람 또는 관리자만 지우기" on storage.objects;
+create policy "attachments: 올린 사람 또는 관리자만 지우기" on storage.objects
+  for delete to authenticated
+  using (
+    bucket_id = 'attachments'
+    and ((storage.foldername(name))[1] = (select auth.uid())::text or (select public.is_admin()))
+  );
 
 
 -- =====================================================================

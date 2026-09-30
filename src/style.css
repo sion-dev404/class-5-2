@@ -457,6 +457,59 @@ details.legend {
   color: var(--muted);
 }
 
+/* ---------- 첨부 파일 ---------- */
+
+.attachments {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.image-grid img {
+  display: block;
+  width: 100%;
+  height: 160px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.file-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.file-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.file-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.clip {
+  font-weight: 400;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+input[type='file'] {
+  padding: 8px;
+}
+
 /* ---------- 휴대폰 ---------- */
 
 @media (max-width: 600px) {

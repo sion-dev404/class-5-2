@@ -276,9 +276,12 @@ create policy "lessons_write" on lessons for all    to authenticated
 
 ## 7. 개인정보 보호 설계
 
-- **저장하지 않는 것**: 실명, 사진, 전화번호, 주소, 실제 이메일, 생년월일
+- **저장하지 않는 것**: 실명, 전화번호, 주소, 실제 이메일, 생년월일 (계정 정보에는 사진도 없음)
 - 계정은 번호 아이디(`s01`)와 가짜 이메일(`@class52.local`)뿐
-- 사진·파일 업로드 기능 자체를 만들지 않음 (Supabase Storage 사용 안 함)
+- 게시판 첨부 파일(사용자 요청으로 추가): 비공개 보관함이라 **로그인한 우리 반만** 볼 수 있음
+  - 사진은 올릴 때 다시 그려서 **촬영 위치(GPS)·기기 정보를 지우고** 긴 쪽 1600px로 줄임
+  - 글쓰기 화면 안내: "친구 얼굴이 나온 사진은 친구에게 먼저 물어보고 올려요"
+  - 관리자는 어떤 글이든 첨부와 함께 삭제 가능
 - 글 내용은 학생이 쓰므로 완벽히 막을 수 없음 → 안내문 + 전화번호 경고 + **관리자 삭제 권한**으로 대응
 - 로그인한 우리 반만 조회 가능 (RLS + 가입 차단)
 - 학년이 끝나면: Supabase에서 학생 계정 삭제 → 게시글도 함께 삭제되도록 `on delete cascade`
@@ -387,6 +390,14 @@ create policy "lessons_write" on lessons for all    to authenticated
 19. 홈에는 오늘 메뉴를, 식단 화면에는 고른 날짜의 메뉴를 보여 준다.
 20. 나이스 연동과 Edge Function은 쓰지 않는다 (인증키·함수 배포가 필요 없음).
 
+**첨부 파일**
+24. 글 하나에 5개, 파일 하나 10MB까지. 사진(jpg·png·gif·webp), pdf, 한글(hwp·hwpx), 워드·엑셀·파워포인트, txt만 허용 (exe·zip·svg 등은 거절).
+25. 로그인한 사람은 누구나 다른 친구 글의 첨부도 보고 내려받을 수 있다. 로그인 안 한 사람은 못 받는다.
+26. 사진은 글 안에 바로 보이고(누르면 크게), 모든 파일에 "내려받기" 버튼이 있다. 한글 파일 이름 그대로 저장된다.
+27. 보관 위치는 `올린사람ID/글번호/무작위이름` — 남의 글 폴더에는 올릴 수 없다 (저장소 보안 규칙).
+28. 글을 지우면 첨부 파일도 보관함에서 지운다. 수정 화면에서 파일을 빼거나 더할 수 있다.
+29. 저장 공간: Supabase 무료 1GB (사진을 줄여 올리므로 수천 장 가능).
+
 **배포·기타**
 21. `netlify.toml`: Node 24, 빌드 `npm run build` → `dist`. 공개용 변수 2개는 Netlify 비밀값 검사에서 제외해서 배포가 괜히 멈추지 않게 했다 (배포 크레딧 절약).
 22. 검색 엔진에 나오지 않도록 `noindex`를 설정했다. 다른 사이트 안에 끼워 넣는 것(iframe)도 막았다.
@@ -433,6 +444,8 @@ create policy "lessons_write" on lessons for all    to authenticated
 ### C. 급식
 - [ ] **10. 급식 테이블 추가**: SQL Editor에서 `supabase/schema.sql` 전체를 **다시** Run (여러 번 실행해도 안전, 기존 글은 그대로) → Table Editor에 `meals`가 생기고 RLS enabled
 - [ ] **11. 확인**: 관리자로 **식단** 메뉴에서 오늘 메뉴 입력 → 홈에도 보임 / 학생 계정에는 입력 칸이 없음
+
+- [ ] **11-1. 첨부 파일 보관함 추가**: SQL Editor에서 `supabase/schema.sql` 전체를 **다시** Run → Table Editor에 `post_files`, Storage에 비공개 `attachments` 보관함이 생김
 
 ### D. 배포
 - [ ] **12. GitHub 저장소**: https://github.com/new 에서 **Private**, 이름 `class-5-2`, README 등 체크 없이 만들기 → 저장소 주소를 🤖에게 알려 주기 (🤖가 remote 연결)

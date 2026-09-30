@@ -1,5 +1,19 @@
 import { supabase } from '../supabase.js';
 import { isAdmin } from '../auth.js';
+import {
+  ACCEPT,
+  ALLOWED_TEXT,
+  MAX_FILES,
+  checkFile,
+  download,
+  formatSize,
+  isImage,
+  listFiles,
+  removeAllFiles,
+  removeFile,
+  signedUrls,
+  uploadFiles,
+} from '../files.js';
 import { displayName, el, errorBox, formatDateTime, loading, message, withBusy } from '../ui.js';
 
 export const title = '게시판';
@@ -36,11 +50,17 @@ async function renderList(view, ctx) {
   const body = el('div', {}, loading());
   view.append(body);
 
-  const { data, error, count } = await supabase
-    .from('posts')
-    .select('id, title, created_at, author:profiles(username, nickname)', { count: 'exact' })
-    .order('created_at', { ascending: false })
-    .range(from, from + PAGE_SIZE - 1);
+  const fetchPage = (columns) =>
+    supabase
+      .from('posts')
+      .select(columns, { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+  let { data, error, count } = await fetchPage('id, title, created_at, author:profiles(username, nickname), post_files(count)');
+  // 첨부 파일 표(post_files)가 아직 없으면 📎 표시 없이 목록만
+  if (error?.code === 'PGRST200' || error?.code === 'PGRST205') {
+    ({ data, error, count } = await fetchPage('id, title, created_at, author:profiles(username, nickname)'));
+  }
 
   if (error) {
     body.replaceChildren(errorBox(error));
@@ -54,18 +74,19 @@ async function renderList(view, ctx) {
   const list = el(
     'ul',
     { class: 'list' },
-    data.map((post) =>
-      el(
+    data.map((post) => {
+      const fileCount = post.post_files?.[0]?.count ?? 0;
+      return el(
         'li',
         {},
         el(
           'a',
           { class: 'row-link', href: `#/board/${post.id}` },
-          el('div', { class: 'row-title' }, post.title),
+          el('div', { class: 'row-title' }, post.title, fileCount ? el('span', { class: 'clip', title: `첨부 ${fileCount}개` }, ` 📎${fileCount}`) : null),
           el('div', { class: 'row-meta' }, `${displayName(post.author)} · ${formatDateTime(post.created_at)}`),
         ),
-      ),
-    ),
+      );
+    }),
   );
 
   const lastPage = Math.max(1, Math.ceil((count ?? 0) / PAGE_SIZE));
@@ -83,14 +104,55 @@ async function renderList(view, ctx) {
   body.replaceChildren(list, pager ?? '');
 }
 
+// 글 보기의 첨부 칸: 사진은 바로 보이고, 모든 파일에 내려받기 버튼
+async function attachmentsSection(files) {
+  if (files.length === 0) return null;
+  const status = el('div');
+  let urls = {};
+  try {
+    urls = await signedUrls(files.filter((file) => isImage(file.mime)).map((file) => file.path));
+  } catch (error) {
+    status.append(errorBox(error));
+  }
+
+  const images = files
+    .filter((file) => isImage(file.mime) && urls[file.path])
+    .map((file) =>
+      el('a', { href: urls[file.path], target: '_blank', rel: 'noopener', title: '크게 보기' }, el('img', { src: urls[file.path], alt: file.name, loading: 'lazy' })),
+    );
+
+  const list = el(
+    'ul',
+    { class: 'file-list' },
+    files.map((file) => {
+      const button = el('button', { type: 'button', class: 'secondary small' }, '내려받기');
+      button.addEventListener('click', () =>
+        withBusy(button, async () => {
+          try {
+            await download(file);
+          } catch (error) {
+            status.replaceChildren(errorBox(error));
+          }
+        }),
+      );
+      return el('li', {}, el('span', { class: 'file-name' }, `📎 ${file.name}`), el('span', { class: 'row-meta' }, formatSize(file.size)), button);
+    }),
+  );
+
+  return el('section', { class: 'attachments' }, images.length ? el('div', { class: 'image-grid' }, images) : null, list, status);
+}
+
 async function renderPost(view, ctx, id) {
   view.append(loading());
 
-  const { data: post, error } = await supabase
-    .from('posts')
-    .select('id, title, content, created_at, updated_at, author_id, author:profiles(username, nickname)')
-    .eq('id', id)
-    .maybeSingle();
+  const [{ data: post, error }, { data: files, error: filesError }] = await Promise.all([
+    supabase
+      .from('posts')
+      .select('id, title, content, created_at, updated_at, author_id, author:profiles(username, nickname)')
+      .eq('id', id)
+      .maybeSingle(),
+    listFiles(id),
+  ]);
 
   if (error) {
     view.replaceChildren(errorBox(error));
@@ -109,8 +171,14 @@ async function renderPost(view, ctx, id) {
   const deleteButton = el('button', { type: 'button', class: 'danger' }, '삭제');
   deleteButton.addEventListener('click', () => {
     const who = mine ? '이 글을' : `${displayName(post.author)}의 글을`;
-    if (!confirm(`${who} 삭제할까요? 되돌릴 수 없어요.`)) return;
+    if (!confirm(`${who} 삭제할까요? 첨부 파일도 함께 지워지고, 되돌릴 수 없어요.`)) return;
     withBusy(deleteButton, async () => {
+      try {
+        await removeAllFiles(id);
+      } catch (removeError) {
+        status.replaceChildren(errorBox(removeError));
+        return;
+      }
       // .select() 로 실제로 지워진 줄을 돌려받는다. 권한이 없으면 0줄.
       const { data, error: deleteError } = await supabase.from('posts').delete().eq('id', id).select('id');
       if (deleteError) {
@@ -123,6 +191,8 @@ async function renderPost(view, ctx, id) {
     });
   });
 
+  const attachments = filesError ? errorBox(filesError) : await attachmentsSection(files);
+
   view.replaceChildren(
     el(
       'article',
@@ -134,6 +204,7 @@ async function renderPost(view, ctx, id) {
         `${displayName(post.author)} · ${formatDateTime(post.created_at)}${edited ? ' (고침)' : ''}`,
       ),
       el('p', { class: 'body-text' }, post.content),
+      attachments,
       el(
         'div',
         { class: 'actions' },
@@ -157,14 +228,85 @@ function countedField(id, labelText, input, max) {
   return [el('label', { for: id }, labelText), input, counter];
 }
 
+// 첨부 파일 고르기 칸: 이미 있는 파일(수정할 때) + 새로 고른 파일
+function filePicker(existing) {
+  const kept = [...existing];
+  const removed = [];
+  let added = [];
+
+  const input = el('input', { id: 'post-files', type: 'file', multiple: true, accept: ACCEPT });
+  const list = el('ul', { class: 'file-list' });
+  const note = el('div');
+
+  function redraw() {
+    list.replaceChildren(
+      ...kept.map((file) =>
+        el(
+          'li',
+          {},
+          el('span', { class: 'file-name' }, `📎 ${file.name}`),
+          el('span', { class: 'row-meta' }, formatSize(file.size)),
+          el('button', { type: 'button', class: 'danger small', onclick: () => { kept.splice(kept.indexOf(file), 1); removed.push(file); redraw(); } }, '빼기'),
+        ),
+      ),
+      ...added.map((file) =>
+        el(
+          'li',
+          {},
+          el('span', { class: 'file-name' }, `🆕 ${file.name}`),
+          el('span', { class: 'row-meta' }, formatSize(file.size)),
+          el('button', { type: 'button', class: 'danger small', onclick: () => { added = added.filter((f) => f !== file); redraw(); } }, '빼기'),
+        ),
+      ),
+    );
+    input.disabled = kept.length + added.length >= MAX_FILES;
+  }
+
+  input.addEventListener('change', () => {
+    const problems = [];
+    for (const file of input.files) {
+      const problem = checkFile(file);
+      if (problem) problems.push(problem);
+      else if (kept.length + added.length >= MAX_FILES) problems.push(`${file.name}: 파일은 ${MAX_FILES}개까지만 올릴 수 있어요.`);
+      else added.push(file);
+    }
+    input.value = '';
+    note.replaceChildren(...problems.map((text) => message(text, 'error')));
+    redraw();
+  });
+
+  redraw();
+  return {
+    element: el(
+      'div',
+      {},
+      el('label', { for: 'post-files' }, `첨부 파일 (${MAX_FILES}개까지, 하나에 10MB까지)`),
+      input,
+      el('p', { class: 'row-meta' }, `올릴 수 있는 파일: ${ALLOWED_TEXT}. 사진은 촬영 위치 정보를 지우고 크기를 줄여서 올려요.`),
+      note,
+      list,
+    ),
+    get added() {
+      return added;
+    },
+    get removed() {
+      return removed;
+    },
+  };
+}
+
 async function renderForm(view, ctx, id) {
   let post = null;
+  let existingFiles = [];
   if (id !== null) {
     view.append(loading());
-    const { data, error } = await supabase.from('posts').select('id, title, content, author_id').eq('id', id).maybeSingle();
+    const [{ data, error }, { data: files, error: filesError }] = await Promise.all([
+      supabase.from('posts').select('id, title, content, author_id').eq('id', id).maybeSingle(),
+      listFiles(id),
+    ]);
     view.replaceChildren();
-    if (error) {
-      view.append(errorBox(error));
+    if (error || filesError) {
+      view.append(errorBox(error ?? filesError));
       return;
     }
     if (!data) {
@@ -176,19 +318,22 @@ async function renderForm(view, ctx, id) {
       return;
     }
     post = data;
+    existingFiles = files;
   }
 
   const titleInput = el('input', { id: 'post-title', maxlength: String(TITLE_MAX), required: true, value: post?.title ?? '' });
   const contentInput = el('textarea', { id: 'post-content', maxlength: String(CONTENT_MAX), required: true }, post?.content ?? '');
+  const picker = filePicker(existingFiles);
   const status = el('div');
   const submit = el('button', { type: 'submit' }, post ? '고친 글 저장' : '올리기');
 
   const form = el(
     'form',
     { class: 'card' },
-    message('⚠️ 친구 이름, 전화번호, 주소, 사진은 쓰지 않아요. 모두가 기분 좋은 글을 써요.', 'warn'),
+    message('⚠️ 친구 이름, 전화번호, 주소는 쓰지 않아요. 친구 얼굴이 나온 사진은 친구에게 먼저 물어보고 올려요.', 'warn'),
     countedField('post-title', '제목', titleInput, TITLE_MAX),
     countedField('post-content', '내용', contentInput, CONTENT_MAX),
+    picker.element,
     status,
     el(
       'div',
@@ -211,17 +356,35 @@ async function renderForm(view, ctx, id) {
     }
 
     withBusy(submit, async () => {
+      status.replaceChildren(message('저장하는 중…'));
       const query = post
         ? supabase.from('posts').update(values).eq('id', id).select('id')
         : supabase.from('posts').insert(values).select('id');
       const { data, error } = await query;
       if (error) {
         status.replaceChildren(errorBox(error));
-      } else if (data.length === 0) {
-        status.replaceChildren(message('저장할 권한이 없어요.', 'error'));
-      } else {
-        location.hash = `#/board/${data[0].id}`;
+        return;
       }
+      if (data.length === 0) {
+        status.replaceChildren(message('저장할 권한이 없어요.', 'error'));
+        return;
+      }
+      const postId = data[0].id;
+
+      const failures = [];
+      for (const file of picker.removed) {
+        try {
+          await removeFile(file);
+        } catch (removeError) {
+          failures.push(`${file.name}: 빼지 못했어요. (${removeError.message})`);
+        }
+      }
+      failures.push(
+        ...(await uploadFiles(ctx.user.id, postId, picker.added, (text) => status.replaceChildren(message(text)))),
+      );
+
+      if (failures.length) alert(`글은 저장했지만 파일 일부에 문제가 있었어요.\n\n${failures.join('\n')}`);
+      location.hash = `#/board/${postId}`;
     });
   });
 
