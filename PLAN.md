@@ -417,7 +417,7 @@ create policy "lessons_write" on lessons for all    to authenticated
 - [ ] **3. 계정 3개 만들기**: Authentication → Users → Add user → Create new user, **Auto Confirm User 체크**
   - `redsionkim@class52.local` (관리자)
   - `s01@class52.local`, `s02@class52.local` (테스트 학생)
-- [ ] **4. 관리자 지정**: SQL Editor에서 `supabase/make-admin.sql` Run → 결과 표에서 redsionkim만 `admin`
+- [ ] **4. 관리자 지정**: SQL Editor에서 `supabase/make-admin.sql` Run → 결과 표에서 redsionkim, teacher0502만 `admin`
 
 ### B. 내 컴퓨터에서 확인 (`npm run dev` → http://localhost:5173)
 - [ ] **5. 로그인**: 로그인 안 한 상태로 `#/board`를 직접 입력하면 로그인 화면으로 간다 / 틀린 비밀번호는 "아이디 또는 비밀번호가 달라요" / `s01` 로그인 후 새로고침해도 유지
