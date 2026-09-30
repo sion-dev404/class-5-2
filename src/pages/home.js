@@ -18,9 +18,11 @@ export function render(view, ctx) {
   view.append(
     el('h1', {}, `안녕하세요, ${name}!`),
     el('p', { class: 'muted' }, `오늘은 ${formatDate(today())}이에요.`),
-    ctx.user.profileMissing
-      ? message('계정 정보(profiles)를 찾지 못했어요. 선생님께 알려 주세요.', 'warn')
-      : null,
+  );
+  if (ctx.user.profileMissing) {
+    view.append(message('계정 정보(profiles)를 찾지 못했어요. 선생님께 알려 주세요.', 'warn'));
+  }
+  view.append(
     el(
       'div',
       { class: 'home-grid' },
