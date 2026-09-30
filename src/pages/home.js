@@ -1,5 +1,5 @@
 import { isAdmin } from '../auth.js';
-import { fetchMeals } from '../meal.js';
+import { fetchMeal } from '../meal.js';
 import { el, errorBox, formatDate, loading, message, today } from '../ui.js';
 import { fetchLessons, lessonHeading } from './lessons.js';
 import { dueBadge, fetchUpcomingHomework } from './homework.js';
@@ -68,11 +68,7 @@ async function loadHomework(box) {
 }
 
 async function loadMeal(box) {
-  try {
-    const meals = await fetchMeals(today());
-    const lunch = meals.find((meal) => meal.type === '중식') ?? meals[0];
-    box.replaceChildren(lunch ? dishList(lunch) : message('오늘은 급식 정보가 없어요.'));
-  } catch (error) {
-    box.replaceChildren(message(error.message, 'error'));
-  }
+  const { data: meal, error } = await fetchMeal(today());
+  if (error) return box.replaceChildren(errorBox(error));
+  box.replaceChildren(meal ? dishList(meal.menu) : message('오늘은 등록된 급식이 없어요.'));
 }

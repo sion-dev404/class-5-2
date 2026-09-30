@@ -117,6 +117,21 @@ check('s01: 수업 삭제 0건', !r.error && r.affected === 0, r);
 r = await as('s01', `update public.lessons set subject='수학' where id=${lessonId}`);
 check('s01: 수업 수정 0건', !r.error && r.affected === 0, r);
 
+r = await as('s01', `insert into public.meals (meal_date, menu) values ('2026-10-01', '짜장면')`);
+check('s01: 급식 쓰기 거부', !!r.error, r);
+r = await as('redsionkim', `insert into public.meals (meal_date, menu) values ('2026-10-01', '쌀밥\n미역국') returning id`);
+check('관리자: 급식 쓰기', !r.error, r);
+r = await as('redsionkim', `insert into public.meals (meal_date, menu) values ('2026-10-01', '두 번째')`);
+check('급식: 같은 날짜 두 번 거부', !!r.error, r);
+r = await as('s01', `select menu from public.meals`);
+check('s01: 급식 읽기', r.rows?.length === 1, r);
+r = await as('s01', `update public.meals set menu='피자'`);
+check('s01: 급식 수정 0건', !r.error && r.affected === 0, r);
+r = await as('s01', `delete from public.meals`);
+check('s01: 급식 삭제 0건', !r.error && r.affected === 0, r);
+r = await as('anon', `select * from public.meals`);
+check('비로그인: 급식 읽기 거부', !!r.error, r);
+
 r = await as('redsionkim', `delete from public.posts where id=${postId}`);
 check('관리자: 학생 글 삭제', !r.error && r.affected === 1, r);
 

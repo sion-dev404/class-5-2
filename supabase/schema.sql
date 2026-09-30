@@ -133,12 +133,23 @@ create table if not exists public.homework (
 create index if not exists homework_due_date_idx on public.homework (due_date);
 
 
+-- ---------------------------------------------------------------------
+-- 6-2. meals : 급식 식단 (관리자가 날짜별로 직접 입력, 하루에 하나)
+-- ---------------------------------------------------------------------
+create table if not exists public.meals (
+  id         bigint generated always as identity primary key,
+  meal_date  date not null unique,                                    -- 급식 날짜 (하루 한 번)
+  menu       text not null check (char_length(menu) between 1 and 1000), -- 메뉴 (한 줄에 한 가지)
+  created_at timestamptz not null default now()
+);
+
+
 -- =====================================================================
 -- 7. 권한 : "어떤 종류의 작업을 할 수 있나" (1차 잠금)
 --    anon = 로그인 안 한 사람 → 아무것도 못 함
 --    authenticated = 로그인한 우리 반 → 아래에 적은 것만 가능
 -- =====================================================================
-revoke all on public.profiles, public.posts, public.lessons, public.homework from anon, authenticated;
+revoke all on public.profiles, public.posts, public.lessons, public.homework, public.meals from anon, authenticated;
 
 -- profiles : 읽기, 그리고 "별명" 칸만 고치기 (역할(role)은 학생이 절대 못 바꿈)
 grant select on public.profiles to authenticated;
@@ -148,8 +159,8 @@ grant update (nickname) on public.profiles to authenticated;
 grant select, delete on public.posts to authenticated;
 grant insert (title, content), update (title, content) on public.posts to authenticated;
 
--- lessons, homework : 권한은 열어 두되, 실제로는 아래 RLS가 관리자만 통과시킴
-grant select, insert, update, delete on public.lessons, public.homework to authenticated;
+-- lessons, homework, meals : 권한은 열어 두되, 실제로는 아래 RLS가 관리자만 통과시킴
+grant select, insert, update, delete on public.lessons, public.homework, public.meals to authenticated;
 
 
 -- =====================================================================
@@ -160,6 +171,7 @@ alter table public.profiles enable row level security;
 alter table public.posts    enable row level security;
 alter table public.lessons  enable row level security;
 alter table public.homework enable row level security;
+alter table public.meals    enable row level security;
 
 -- ---- profiles ----
 drop policy if exists "profiles: 로그인하면 읽기" on public.profiles;
@@ -215,6 +227,18 @@ create policy "homework: 로그인하면 읽기" on public.homework
 
 drop policy if exists "homework: 관리자만 쓰고 고치고 지우기" on public.homework;
 create policy "homework: 관리자만 쓰고 고치고 지우기" on public.homework
+  for all to authenticated
+  using ((select public.is_admin()))
+  with check ((select public.is_admin()));
+
+-- ---- meals ----
+drop policy if exists "meals: 로그인하면 읽기" on public.meals;
+create policy "meals: 로그인하면 읽기" on public.meals
+  for select to authenticated
+  using (true);
+
+drop policy if exists "meals: 관리자만 쓰고 고치고 지우기" on public.meals;
+create policy "meals: 관리자만 쓰고 고치고 지우기" on public.meals
   for all to authenticated
   using ((select public.is_admin()))
   with check ((select public.is_admin()));
