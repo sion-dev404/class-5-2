@@ -168,6 +168,20 @@ alter table public.post_files drop constraint if exists post_files_size_check;
 alter table public.post_files add constraint post_files_size_check check (size between 1 and 52428800);
 
 -- ---------------------------------------------------------------------
+-- 6-5. comments : 게시글 댓글 (글자만)
+-- ---------------------------------------------------------------------
+create table if not exists public.comments (
+  id         bigint generated always as identity primary key,
+  post_id    bigint not null references public.posts (id) on delete cascade,             -- 어느 글의 댓글인지 (글이 지워지면 함께 지워짐)
+  author_id  uuid not null default auth.uid() references public.profiles (id) on delete cascade, -- 댓글 쓴 사람 = 로그인한 사람
+  content    text not null check (char_length(content) between 1 and 500),            -- 내용 (500자 이내)
+  created_at timestamptz not null default now()
+);
+
+create index if not exists comments_post_id_idx on public.comments (post_id, created_at);
+
+
+-- ---------------------------------------------------------------------
 -- 6-4. student_names : 학생 실명 (관리용)
 --      관리자(선생님)만 읽고 쓸 수 있습니다. 학생은 친구 실명을 볼 수 없습니다.
 --      (profiles와 따로 둔 이유: profiles는 반 전체가 읽을 수 있기 때문)
@@ -222,6 +236,11 @@ revoke all on public.post_files from anon, authenticated;
 grant select, delete on public.post_files to authenticated;
 grant insert (post_id, path, name, size, mime) on public.post_files to authenticated;
 
+-- comments : 읽기, 쓰기(어느 글에·내용만), 지우기. 고치기는 없음
+revoke all on public.comments from anon, authenticated;
+grant select, delete on public.comments to authenticated;
+grant insert (post_id, content) on public.comments to authenticated;
+
 -- student_names : 권한은 열어 두되, 실제로는 아래 RLS가 관리자만 통과시킴
 revoke all on public.student_names from anon, authenticated;
 grant select, insert, update, delete on public.student_names to authenticated;
@@ -238,6 +257,7 @@ alter table public.homework enable row level security;
 alter table public.meals    enable row level security;
 alter table public.post_files enable row level security;
 alter table public.student_names enable row level security;
+alter table public.comments enable row level security;
 
 -- ---- profiles ----
 drop policy if exists "profiles: 로그인하면 읽기" on public.profiles;
@@ -330,6 +350,22 @@ create policy "post_files: 올린 사람 또는 관리자만 지우기" on publi
   for delete to authenticated
   using (uploader_id = (select auth.uid()) or (select public.is_admin()));
 
+
+-- ---- comments ----
+drop policy if exists "comments: 로그인하면 읽기" on public.comments;
+create policy "comments: 로그인하면 읽기" on public.comments
+  for select to authenticated
+  using (true);
+
+drop policy if exists "comments: 내 이름으로만 쓰기" on public.comments;
+create policy "comments: 내 이름으로만 쓰기" on public.comments
+  for insert to authenticated
+  with check (author_id = (select auth.uid()));
+
+drop policy if exists "comments: 내 댓글 또는 관리자만 지우기" on public.comments;
+create policy "comments: 내 댓글 또는 관리자만 지우기" on public.comments
+  for delete to authenticated
+  using (author_id = (select auth.uid()) or (select public.is_admin()));
 
 -- ---- student_names : 관리자만 (학생은 읽기도 안 됨) ----
 drop policy if exists "student_names: 관리자만" on public.student_names;

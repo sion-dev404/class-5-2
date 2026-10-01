@@ -551,3 +551,45 @@ input[type='file'] {
 .name-row input {
   flex: 1 1 160px;
 }
+
+/* ---------- 댓글 ---------- */
+
+.comments {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.comment-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.comment-list li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.comment-list .body-text {
+  margin-top: 4px;
+}
+
+.comment-form textarea {
+  min-height: 80px;
+}
+
+.comment-count {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--primary);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

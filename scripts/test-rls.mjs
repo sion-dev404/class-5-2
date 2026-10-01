@@ -152,6 +152,34 @@ check('s01: 내 글 삭제', !r.error && r.affected === 1, r);
 r = await as('s01', `select public.is_admin() as a`);
 check('s01: is_admin() = false', r.rows?.[0]?.a === false, r);
 
+// ---- 댓글 ----
+r = await as('s01', `insert into public.posts (title, content) values ('댓글 글', '댓글 달아 줘') returning id`);
+const cPost = r.rows[0].id;
+r = await as('s02', `insert into public.comments (post_id, content) values (${cPost}, '좋아요!') returning id, author_id`);
+check('s02: 남의 글에 댓글', !r.error && r.rows[0].author_id === ids.s02, r);
+const cId = r.rows[0].id;
+r = await as('s02', `insert into public.comments (post_id, content, author_id) values (${cPost}, '사칭', '${ids.s01}')`);
+check('s02: 남의 이름으로 댓글 거부', !!r.error, r);
+r = await as('s01', `select content from public.comments where post_id=${cPost}`);
+check('s01: 댓글 읽기', r.rows?.length === 1, r);
+r = await as('anon', `select * from public.comments`);
+check('비로그인: 댓글 거부', !!r.error, r);
+r = await as('s01', `update public.comments set content='바꿈' where id=${cId}`);
+check('댓글 고치기 불가', !!r.error, r);
+r = await as('s01', `delete from public.comments where id=${cId}`);
+check('s01: 남의 댓글 삭제 0건 (내 글이어도)', !r.error && r.affected === 0, r);
+r = await as('s02', `insert into public.comments (post_id, content) values (${cPost}, '')`);
+check('빈 댓글 거부', !!r.error, r);
+r = await as('s02', `delete from public.comments where id=${cId}`);
+check('s02: 내 댓글 삭제', !r.error && r.affected === 1, r);
+r = await as('s02', `insert into public.comments (post_id, content) values (${cPost}, '두 번째') returning id`);
+r = await as('redsionkim', `delete from public.comments where id=${r.rows[0].id}`);
+check('관리자: 학생 댓글 삭제', !r.error && r.affected === 1, r);
+await as('s02', `insert into public.comments (post_id, content) values (${cPost}, '남는 댓글')`);
+await as('s01', `delete from public.posts where id=${cPost}`);
+r = await db.query(`select count(*)::int as n from public.comments where post_id=${cPost}`);
+check('글 삭제 시 댓글도 삭제', r.rows[0].n === 0, r.rows);
+
 // ---- 실명 (관리자만) ----
 r = await as('redsionkim', `insert into public.student_names (user_id, real_name) values ('${ids.s02}', '김민준')`);
 check('관리자: 실명 입력', !r.error, r);

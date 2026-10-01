@@ -57,8 +57,8 @@ async function renderList(view, ctx) {
       .select(columns, { count: 'exact' })
       .order('created_at', { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
-  let { data, error, count } = await fetchPage('id, title, created_at, author_id, author:profiles(username, nickname), post_files(count)');
-  // 첨부 파일 표(post_files)가 아직 없으면 📎 표시 없이 목록만
+  let { data, error, count } = await fetchPage('id, title, created_at, author_id, author:profiles(username, nickname), post_files(count), comments(count)');
+  // 첨부·댓글 표가 아직 없으면 📎·댓글 수 없이 목록만
   if (error?.code === 'PGRST200' || error?.code === 'PGRST205') {
     ({ data, error, count } = await fetchPage('id, title, created_at, author_id, author:profiles(username, nickname)'));
   }
@@ -78,13 +78,20 @@ async function renderList(view, ctx) {
     { class: 'list' },
     data.map((post) => {
       const fileCount = post.post_files?.[0]?.count ?? 0;
+      const commentCount = post.comments?.[0]?.count ?? 0;
       return el(
         'li',
         {},
         el(
           'a',
           { class: 'row-link', href: `#/board/${post.id}` },
-          el('div', { class: 'row-title' }, post.title, fileCount ? el('span', { class: 'clip', title: `첨부 ${fileCount}개` }, ` 📎${fileCount}`) : null),
+          el(
+            'div',
+            { class: 'row-title' },
+            post.title,
+            commentCount ? el('span', { class: 'comment-count', title: `댓글 ${commentCount}개` }, ` [${commentCount}]`) : null,
+            fileCount ? el('span', { class: 'clip', title: `첨부 ${fileCount}개` }, ` 📎${fileCount}`) : null,
+          ),
           el('div', { class: 'row-meta' }, `${withRealName(displayName(post.author), post.author_id, names)} · ${formatDateTime(post.created_at)}`),
         ),
       );
@@ -147,7 +154,7 @@ async function attachmentsSection(files) {
 async function renderPost(view, ctx, id) {
   view.append(loading());
 
-  const [{ data: post, error }, { data: files, error: filesError }, names] = await Promise.all([
+  const [{ data: post, error }, { data: files, error: filesError }, names, comments] = await Promise.all([
     supabase
       .from('posts')
       .select('id, title, content, created_at, updated_at, author_id, author:profiles(username, nickname)')
@@ -155,6 +162,7 @@ async function renderPost(view, ctx, id) {
       .maybeSingle(),
     listFiles(id),
     realNames(ctx.user),
+    fetchComments(id),
   ]);
 
   if (error) {
@@ -208,6 +216,7 @@ async function renderPost(view, ctx, id) {
       ),
       el('p', { class: 'body-text' }, post.content),
       attachments,
+      commentsSection(id, comments, ctx, names),
       el(
         'div',
         { class: 'actions' },
@@ -218,6 +227,96 @@ async function renderPost(view, ctx, id) {
       ),
       status,
     ),
+  );
+}
+
+// ---------- 댓글 ----------
+
+const COMMENT_MAX = 500;
+
+async function fetchComments(postId) {
+  const result = await supabase
+    .from('comments')
+    .select('id, content, created_at, author_id, author:profiles(username, nickname)')
+    .eq('post_id', postId)
+    .order('created_at');
+  // 댓글 표가 아직 없으면(SQL 실행 전) 댓글 칸을 숨김
+  if (result.error?.code === 'PGRST205' || result.error?.code === 'PGRST200') return { missing: true };
+  return result;
+}
+
+function commentItem(comment, ctx, names) {
+  const status = el('div');
+  const canDelete = comment.author_id === ctx.user.id || isAdmin(ctx.user);
+  const deleteButton = canDelete ? el('button', { type: 'button', class: 'danger small' }, '삭제') : null;
+  deleteButton?.addEventListener('click', () => {
+    if (!confirm('이 댓글을 삭제할까요?')) return;
+    withBusy(deleteButton, async () => {
+      const { data, error } = await supabase.from('comments').delete().eq('id', comment.id).select('id');
+      if (error || data.length === 0) {
+        status.replaceChildren(error ? errorBox(error) : message('삭제할 권한이 없어요.', 'error'));
+        return;
+      }
+      ctx.refresh();
+    });
+  });
+  return el(
+    'li',
+    {},
+    el(
+      'div',
+      { class: 'item-head' },
+      el('strong', {}, withRealName(displayName(comment.author), comment.author_id, names)),
+      el('span', { class: 'row-meta' }, formatDateTime(comment.created_at)),
+      el('span', { class: 'spacer' }),
+      deleteButton,
+    ),
+    el('p', { class: 'body-text' }, comment.content),
+    status,
+  );
+}
+
+function commentsSection(postId, comments, ctx, names) {
+  if (comments.missing) return null;
+  if (comments.error) return errorBox(comments.error);
+  const list = comments.data;
+
+  const input = el('textarea', { id: 'comment-content', maxlength: String(COMMENT_MAX), required: true, rows: '3', placeholder: '댓글을 써 주세요. 친구를 기분 좋게 하는 말로!' });
+  const status = el('div');
+  const submit = el('button', { type: 'submit' }, '댓글 등록');
+  const form = el(
+    'form',
+    { class: 'comment-form' },
+    el('label', { for: 'comment-content', class: 'sr-only' }, '댓글'),
+    input,
+    status,
+    el('div', { class: 'actions' }, submit),
+  );
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const content = input.value.trim();
+    if (!content) {
+      status.replaceChildren(message('댓글 내용을 써 주세요.', 'error'));
+      return;
+    }
+    if (PHONE_PATTERN.test(content) && !confirm('전화번호처럼 보이는 숫자가 있어요.\n전화번호는 쓰지 않아요. 그래도 올릴까요?')) return;
+    withBusy(submit, async () => {
+      const { data, error } = await supabase.from('comments').insert({ post_id: postId, content }).select('id');
+      if (error || data.length === 0) {
+        status.replaceChildren(error ? errorBox(error) : message('댓글을 올리지 못했어요.', 'error'));
+        return;
+      }
+      ctx.refresh();
+    });
+  });
+
+  return el(
+    'section',
+    { class: 'comments' },
+    el('h2', {}, `댓글 ${list.length}`),
+    list.length ? el('ul', { class: 'comment-list' }, list.map((comment) => commentItem(comment, ctx, names))) : message('아직 댓글이 없어요. 첫 댓글을 남겨 보세요.'),
+    form,
   );
 }
 

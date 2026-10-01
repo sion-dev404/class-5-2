@@ -406,6 +406,11 @@ create policy "lessons_write" on lessons for all    to authenticated
 31. 학생 관리 화면에는 학생 계정만 나온다 (관리자 계정 제외). 칸을 비우고 저장하면 그 학생 실명이 지워진다.
 32. 실명은 20자까지. 학생 계정을 지우면 실명도 함께 지워진다.
 
+**댓글**
+33. 로그인한 사람은 누구 글에나 댓글을 쓸 수 있다 (500자, 글자만).
+34. 댓글은 고칠 수 없고, 지우기만 된다: 내 댓글은 내가, 모든 댓글은 관리자가. 글쓴이라도 남의 댓글은 못 지운다.
+35. 게시판 목록에 댓글 수를 `[3]`처럼 표시한다. 글을 지우면 댓글도 함께 지워진다.
+
 **배포·기타**
 21. `netlify.toml`: Node 24, 빌드 `npm run build` → `dist`. 공개용 변수 2개는 Netlify 비밀값 검사에서 제외해서 배포가 괜히 멈추지 않게 했다 (배포 크레딧 절약).
 22. 검색 엔진에 나오지 않도록 `noindex`를 설정했다. 다른 사이트 안에 끼워 넣는 것(iframe)도 막았다.
@@ -453,6 +458,7 @@ create policy "lessons_write" on lessons for all    to authenticated
 - [ ] **10. 급식 테이블 추가**: SQL Editor에서 `supabase/schema.sql` 전체를 **다시** Run (여러 번 실행해도 안전, 기존 글은 그대로) → Table Editor에 `meals`가 생기고 RLS enabled
 - [ ] **11. 확인**: 관리자로 **식단** 메뉴에서 오늘 메뉴 입력 → 홈에도 보임 / 학생 계정에는 입력 칸이 없음
 
+- [ ] **11-3. 댓글 표 추가**: 같은 `schema.sql` 다시 Run → Table Editor에 `comments`
 - [ ] **11-2. 실명 표 추가**: 같은 `schema.sql` 다시 Run에 포함됨 → Table Editor에 `student_names` → 관리자로 **학생 관리** 메뉴에서 실명 입력
 - [ ] **11-1. 첨부 파일 보관함 추가**: SQL Editor에서 `supabase/schema.sql` 전체를 **다시** Run → Table Editor에 `post_files`, Storage에 비공개 `attachments` 보관함이 생김
 
