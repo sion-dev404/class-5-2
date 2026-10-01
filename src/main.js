@@ -48,8 +48,8 @@ function updateHeader(user, name) {
   userArea.append(
     el(
       'a',
-      { href: '#/me', class: name === 'me' ? 'active' : null, title: '내 정보' },
-      isAdmin(user) ? `${user.username} (선생님)` : user.nickname ?? user.username,
+      { href: '#/me', class: name === 'me' ? 'active' : null, title: '내 정보 · 별명 바꾸기' },
+      `${user.nickname ?? user.username}${isAdmin(user) ? ' (선생님)' : ''} ✏️`,
     ),
     el(
       'button',

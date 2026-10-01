@@ -280,7 +280,7 @@ function filePicker(existing) {
     element: el(
       'div',
       {},
-      el('label', { for: 'post-files' }, `첨부 파일 (${MAX_FILES}개까지, 하나에 10MB까지)`),
+      el('label', { for: 'post-files' }, `첨부 파일 (${MAX_FILES}개까지, 하나에 50MB까지)`),
       input,
       el('p', { class: 'row-meta' }, `올릴 수 있는 파일: ${ALLOWED_TEXT}. 사진은 촬영 위치 정보를 지우고 크기를 줄여서 올려요.`),
       note,

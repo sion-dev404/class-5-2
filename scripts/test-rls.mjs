@@ -154,7 +154,7 @@ check('s01: is_admin() = false', r.rows?.[0]?.a === false, r);
 
 // ---- 첨부 파일 ----
 r = await db.query(`select public, file_size_limit from storage.buckets where id='attachments'`);
-check('보관함: 비공개, 10MB 제한', r.rows[0]?.public === false && Number(r.rows[0]?.file_size_limit) === 10485760, r.rows);
+check('보관함: 비공개, 50MB 제한', r.rows[0]?.public === false && Number(r.rows[0]?.file_size_limit) === 52428800, r.rows);
 
 r = await as('s01', `insert into public.posts (title, content) values ('사진 글', '첨부') returning id`);
 const filePost = r.rows[0].id;
@@ -188,6 +188,12 @@ r = await as('s02', `delete from storage.objects where name='${s01Path}'`);
 check('s02: 남의 파일 삭제 0건', !r.error && r.affected === 0, r);
 r = await as('s02', `delete from public.post_files where post_id=${filePost}`);
 check('s02: 남의 첨부 목록 삭제 0건', !r.error && r.affected === 0, r);
+
+r = await as('s01', `insert into public.post_files (post_id, path, name, size, mime) values (${filePost}, '${ids.s01}/${filePost}/big.pdf', 'big.pdf', 30000000, 'application/pdf')`);
+check('첨부: 30MB 파일 기록 가능', !r.error, r);
+r = await as('s01', `insert into public.post_files (post_id, path, name, size, mime) values (${filePost}, '${ids.s01}/${filePost}/huge.pdf', 'huge.pdf', 60000000, 'application/pdf')`);
+check('첨부: 50MB 넘는 파일 거부', !!r.error, r);
+await as('s01', `delete from public.post_files where name='big.pdf'`);
 
 for (let i = 2; i <= 5; i++) {
   await as('s01', `insert into public.post_files (post_id, path, name, size, mime) values (${filePost}, '${ids.s01}/${filePost}/${i}.jpg', '${i}.jpg', 1, 'image/jpeg')`);

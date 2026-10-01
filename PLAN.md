@@ -391,7 +391,7 @@ create policy "lessons_write" on lessons for all    to authenticated
 20. 나이스 연동과 Edge Function은 쓰지 않는다 (인증키·함수 배포가 필요 없음).
 
 **첨부 파일**
-24. 글 하나에 5개, 파일 하나 10MB까지. 사진(jpg·png·gif·webp), pdf, 한글(hwp·hwpx), 워드·엑셀·파워포인트, txt만 허용 (exe·zip·svg 등은 거절).
+24. 글 하나에 5개, 파일 하나 50MB까지 (Supabase 무료 플랜 최대치. 1GB는 유료 Pro 플랜에서만 가능). 사진(jpg·png·gif·webp), pdf, 한글(hwp·hwpx), 워드·엑셀·파워포인트, txt만 허용 (exe·zip·svg 등은 거절).
 25. 로그인한 사람은 누구나 다른 친구 글의 첨부도 보고 내려받을 수 있다. 로그인 안 한 사람은 못 받는다.
 26. 사진은 글 안에 바로 보이고(누르면 크게), 모든 파일에 "내려받기" 버튼이 있다. 한글 파일 이름 그대로 저장된다.
 27. 보관 위치는 `올린사람ID/글번호/무작위이름` — 남의 글 폴더에는 올릴 수 없다 (저장소 보안 규칙).

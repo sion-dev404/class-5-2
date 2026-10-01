@@ -18,7 +18,7 @@ export function render(view, ctx) {
   const form = el(
     'form',
     { class: 'card' },
-    el('label', { for: 'nickname' }, '별명 (10자 이내, 선택)'),
+    el('label', { for: 'nickname' }, '별명 (10자 이내) — 게시판에 아이디 대신 보여요'),
     input,
     message('⚠️ 진짜 이름은 쓰지 않아요. 친구들이 알아볼 수 있는 재미있는 별명을 정해 보세요.', 'warn'),
     status,
@@ -44,7 +44,7 @@ export function render(view, ctx) {
   });
 
   view.append(
-    el('h1', {}, '내 정보'),
+    el('h1', {}, '내 정보 · 별명'),
     el(
       'dl',
       { class: 'card info' },

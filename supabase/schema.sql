@@ -156,12 +156,16 @@ create table if not exists public.post_files (
   uploader_id uuid not null default auth.uid() references public.profiles (id) on delete cascade, -- 올린 사람
   path        text not null unique,                                              -- 보관 위치
   name        text not null check (char_length(name) between 1 and 200),         -- 원래 파일 이름 (내려받을 때 쓰는 이름)
-  size        integer not null check (size between 1 and 10485760),             -- 크기 (최대 10MB)
+  size        integer not null,                                                  -- 크기 (최대 50MB, 아래 규칙)
   mime        text not null,                                                     -- 파일 종류
   created_at  timestamptz not null default now()
 );
 
 create index if not exists post_files_post_id_idx on public.post_files (post_id);
+
+-- 파일 크기 규칙: 1바이트 ~ 50MB (예전 10MB 규칙이 있으면 바꿈)
+alter table public.post_files drop constraint if exists post_files_size_check;
+alter table public.post_files add constraint post_files_size_check check (size between 1 and 52428800);
 
 -- 글 하나에 파일은 최대 5개
 create or replace function public.limit_post_files()
@@ -313,11 +317,11 @@ create policy "post_files: 올린 사람 또는 관리자만 지우기" on publi
 -- =====================================================================
 -- 9. 파일 보관함 (Supabase Storage) : "attachments"
 --    · 비공개(public = false) → 로그인한 우리 반만 내려받을 수 있음
---    · 파일 하나 최대 10MB, 사진·문서 종류만 허용 (실행 파일 등은 거절)
+--    · 파일 하나 최대 50MB (Supabase 무료 플랜의 최대치), 사진·문서 종류만 허용 (실행 파일 등은 거절)
 -- =====================================================================
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
-  'attachments', 'attachments', false, 10485760,
+  'attachments', 'attachments', false, 52428800,
   array[
     'image/jpeg', 'image/png', 'image/gif', 'image/webp',
     'application/pdf', 'text/plain',

@@ -3,7 +3,7 @@ import { supabase } from './supabase.js';
 // 게시글 첨부 파일 (Supabase Storage 비공개 보관함 "attachments")
 export const BUCKET = 'attachments';
 export const MAX_FILES = 5;
-export const MAX_BYTES = 10 * 1024 * 1024; // 10MB (보관함 설정과 같게)
+export const MAX_BYTES = 50 * 1024 * 1024; // 50MB (보관함 설정과 같게, Supabase 무료 플랜 최대치)
 const MAX_IMAGE_SIDE = 1600; // 사진은 긴 쪽을 1600px로 줄임
 
 // 올릴 수 있는 파일 종류: 확장자 → 파일 종류(MIME). 보관함 allowed_mime_types와 같아야 함
@@ -45,8 +45,11 @@ export function formatSize(bytes) {
 
 // 올리기 전 검사: 문제가 있으면 이유(문장), 없으면 null
 export function checkFile(file) {
-  if (!TYPES[extensionOf(file.name)]) return `${file.name}: 올릴 수 없는 파일 종류예요.`;
+  const mime = TYPES[extensionOf(file.name)];
+  if (!mime) return `${file.name}: 올릴 수 없는 파일 종류예요.`;
   if (file.size === 0) return `${file.name}: 빈 파일이에요.`;
+  // 사진(gif 제외)은 줄여서 올리니 나중에 검사, 나머지는 바로 검사
+  if ((!isImage(mime) || mime === 'image/gif') && file.size > MAX_BYTES) return `${file.name}: 50MB보다 커서 올릴 수 없어요.`;
   return null;
 }
 
@@ -77,7 +80,7 @@ export async function uploadFile(userId, postId, file) {
   let blob = file;
   let name = file.name;
   if (isImage(mime)) ({ blob, mime, name } = await prepareImage(file, mime));
-  if (blob.size > MAX_BYTES) throw new Error(`${file.name}: 10MB보다 커서 올릴 수 없어요.`);
+  if (blob.size > MAX_BYTES) throw new Error(`${file.name}: 50MB보다 커서 올릴 수 없어요.`);
 
   const ext = extensionOf(name);
   const path = `${userId}/${postId}/${crypto.randomUUID()}.${ext}`;

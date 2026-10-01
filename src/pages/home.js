@@ -21,6 +21,15 @@ export function render(view, ctx) {
   );
   if (ctx.user.profileMissing) {
     view.append(message('계정 정보(profiles)를 찾지 못했어요. 선생님께 알려 주세요.', 'warn'));
+  } else if (!ctx.user.nickname) {
+    view.append(
+      el(
+        'p',
+        { class: 'ok' },
+        '아직 별명이 없어요. 게시판에 아이디 대신 별명이 보이게 할 수 있어요. ',
+        el('a', { href: '#/me' }, '✏️ 별명 정하기'),
+      ),
+    );
   }
   view.append(
     el(
