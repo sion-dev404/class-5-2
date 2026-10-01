@@ -276,7 +276,10 @@ create policy "lessons_write" on lessons for all    to authenticated
 
 ## 7. 개인정보 보호 설계
 
-- **저장하지 않는 것**: 실명, 전화번호, 주소, 실제 이메일, 생년월일 (계정 정보에는 사진도 없음)
+- **저장하지 않는 것**: 전화번호, 주소, 실제 이메일, 생년월일 (계정 정보에는 사진도 없음)
+- **실명(사용자 요청으로 추가, 관리용)**: `student_names` 표에 따로 저장. **관리자만** 읽고 쓸 수 있고 학생은 자기 실명도 못 읽음 (RLS)
+  - 관리자 화면 "학생 관리"(`#/admin`)에서 입력, 게시판 글쓴이 옆에 관리자에게만 `· 실명`으로 보임
+  - 학생 화면에는 지금처럼 별명/아이디만 보임
 - 계정은 번호 아이디(`s01`)와 가짜 이메일(`@class52.local`)뿐
 - 게시판 첨부 파일(사용자 요청으로 추가): 비공개 보관함이라 **로그인한 우리 반만** 볼 수 있음
   - 사진은 올릴 때 다시 그려서 **촬영 위치(GPS)·기기 정보를 지우고** 긴 쪽 1600px로 줄임
@@ -398,6 +401,11 @@ create policy "lessons_write" on lessons for all    to authenticated
 28. 글을 지우면 첨부 파일도 보관함에서 지운다. 수정 화면에서 파일을 빼거나 더할 수 있다.
 29. 저장 공간: Supabase 무료 1GB (사진을 줄여 올리므로 수천 장 가능).
 
+**실명 (관리용)**
+30. 실명은 선생님(관리자)만 본다. 반 전체가 보게 하려면 `student_names` 읽기 규칙만 바꾸면 된다.
+31. 학생 관리 화면에는 학생 계정만 나온다 (관리자 계정 제외). 칸을 비우고 저장하면 그 학생 실명이 지워진다.
+32. 실명은 20자까지. 학생 계정을 지우면 실명도 함께 지워진다.
+
 **배포·기타**
 21. `netlify.toml`: Node 24, 빌드 `npm run build` → `dist`. 공개용 변수 2개는 Netlify 비밀값 검사에서 제외해서 배포가 괜히 멈추지 않게 했다 (배포 크레딧 절약).
 22. 검색 엔진에 나오지 않도록 `noindex`를 설정했다. 다른 사이트 안에 끼워 넣는 것(iframe)도 막았다.
@@ -445,6 +453,7 @@ create policy "lessons_write" on lessons for all    to authenticated
 - [ ] **10. 급식 테이블 추가**: SQL Editor에서 `supabase/schema.sql` 전체를 **다시** Run (여러 번 실행해도 안전, 기존 글은 그대로) → Table Editor에 `meals`가 생기고 RLS enabled
 - [ ] **11. 확인**: 관리자로 **식단** 메뉴에서 오늘 메뉴 입력 → 홈에도 보임 / 학생 계정에는 입력 칸이 없음
 
+- [ ] **11-2. 실명 표 추가**: 같은 `schema.sql` 다시 Run에 포함됨 → Table Editor에 `student_names` → 관리자로 **학생 관리** 메뉴에서 실명 입력
 - [ ] **11-1. 첨부 파일 보관함 추가**: SQL Editor에서 `supabase/schema.sql` 전체를 **다시** Run → Table Editor에 `post_files`, Storage에 비공개 `attachments` 보관함이 생김
 
 ### D. 배포

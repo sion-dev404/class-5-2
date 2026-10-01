@@ -14,6 +14,7 @@ import {
   signedUrls,
   uploadFiles,
 } from '../files.js';
+import { realNames, withRealName } from '../realnames.js';
 import { displayName, el, errorBox, formatDateTime, loading, message, withBusy } from '../ui.js';
 
 export const title = '게시판';
@@ -56,16 +57,17 @@ async function renderList(view, ctx) {
       .select(columns, { count: 'exact' })
       .order('created_at', { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
-  let { data, error, count } = await fetchPage('id, title, created_at, author:profiles(username, nickname), post_files(count)');
+  let { data, error, count } = await fetchPage('id, title, created_at, author_id, author:profiles(username, nickname), post_files(count)');
   // 첨부 파일 표(post_files)가 아직 없으면 📎 표시 없이 목록만
   if (error?.code === 'PGRST200' || error?.code === 'PGRST205') {
-    ({ data, error, count } = await fetchPage('id, title, created_at, author:profiles(username, nickname)'));
+    ({ data, error, count } = await fetchPage('id, title, created_at, author_id, author:profiles(username, nickname)'));
   }
 
   if (error) {
     body.replaceChildren(errorBox(error));
     return;
   }
+  const names = await realNames(ctx.user);
   if (data.length === 0) {
     body.replaceChildren(message(page === 1 ? '아직 글이 없어요. 첫 글을 써 볼까요?' : '이 쪽에는 글이 없어요.'));
     return;
@@ -83,7 +85,7 @@ async function renderList(view, ctx) {
           'a',
           { class: 'row-link', href: `#/board/${post.id}` },
           el('div', { class: 'row-title' }, post.title, fileCount ? el('span', { class: 'clip', title: `첨부 ${fileCount}개` }, ` 📎${fileCount}`) : null),
-          el('div', { class: 'row-meta' }, `${displayName(post.author)} · ${formatDateTime(post.created_at)}`),
+          el('div', { class: 'row-meta' }, `${withRealName(displayName(post.author), post.author_id, names)} · ${formatDateTime(post.created_at)}`),
         ),
       );
     }),
@@ -145,13 +147,14 @@ async function attachmentsSection(files) {
 async function renderPost(view, ctx, id) {
   view.append(loading());
 
-  const [{ data: post, error }, { data: files, error: filesError }] = await Promise.all([
+  const [{ data: post, error }, { data: files, error: filesError }, names] = await Promise.all([
     supabase
       .from('posts')
       .select('id, title, content, created_at, updated_at, author_id, author:profiles(username, nickname)')
       .eq('id', id)
       .maybeSingle(),
     listFiles(id),
+    realNames(ctx.user),
   ]);
 
   if (error) {
@@ -201,7 +204,7 @@ async function renderPost(view, ctx, id) {
       el(
         'div',
         { class: 'row-meta' },
-        `${displayName(post.author)} · ${formatDateTime(post.created_at)}${edited ? ' (고침)' : ''}`,
+        `${withRealName(displayName(post.author), post.author_id, names)} · ${formatDateTime(post.created_at)}${edited ? ' (고침)' : ''}`,
       ),
       el('p', { class: 'body-text' }, post.content),
       attachments,

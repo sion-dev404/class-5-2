@@ -167,6 +167,18 @@ create index if not exists post_files_post_id_idx on public.post_files (post_id)
 alter table public.post_files drop constraint if exists post_files_size_check;
 alter table public.post_files add constraint post_files_size_check check (size between 1 and 52428800);
 
+-- ---------------------------------------------------------------------
+-- 6-4. student_names : 학생 실명 (관리용)
+--      관리자(선생님)만 읽고 쓸 수 있습니다. 학생은 친구 실명을 볼 수 없습니다.
+--      (profiles와 따로 둔 이유: profiles는 반 전체가 읽을 수 있기 때문)
+-- ---------------------------------------------------------------------
+create table if not exists public.student_names (
+  user_id    uuid primary key references public.profiles (id) on delete cascade, -- 계정이 지워지면 함께 지워짐
+  real_name  text not null check (char_length(real_name) between 1 and 20),       -- 실명
+  updated_at timestamptz not null default now()
+);
+
+
 -- 글 하나에 파일은 최대 5개
 create or replace function public.limit_post_files()
 returns trigger
@@ -210,6 +222,10 @@ revoke all on public.post_files from anon, authenticated;
 grant select, delete on public.post_files to authenticated;
 grant insert (post_id, path, name, size, mime) on public.post_files to authenticated;
 
+-- student_names : 권한은 열어 두되, 실제로는 아래 RLS가 관리자만 통과시킴
+revoke all on public.student_names from anon, authenticated;
+grant select, insert, update, delete on public.student_names to authenticated;
+
 
 -- =====================================================================
 -- 8. RLS 보안 규칙 : "어떤 줄을 읽고 쓸 수 있나" (2차 잠금)
@@ -221,6 +237,7 @@ alter table public.lessons  enable row level security;
 alter table public.homework enable row level security;
 alter table public.meals    enable row level security;
 alter table public.post_files enable row level security;
+alter table public.student_names enable row level security;
 
 -- ---- profiles ----
 drop policy if exists "profiles: 로그인하면 읽기" on public.profiles;
@@ -312,6 +329,14 @@ drop policy if exists "post_files: 올린 사람 또는 관리자만 지우기" 
 create policy "post_files: 올린 사람 또는 관리자만 지우기" on public.post_files
   for delete to authenticated
   using (uploader_id = (select auth.uid()) or (select public.is_admin()));
+
+
+-- ---- student_names : 관리자만 (학생은 읽기도 안 됨) ----
+drop policy if exists "student_names: 관리자만" on public.student_names;
+create policy "student_names: 관리자만" on public.student_names
+  for all to authenticated
+  using ((select public.is_admin()))
+  with check ((select public.is_admin()));
 
 
 -- =====================================================================

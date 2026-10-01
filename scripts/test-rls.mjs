@@ -152,6 +152,20 @@ check('s01: 내 글 삭제', !r.error && r.affected === 1, r);
 r = await as('s01', `select public.is_admin() as a`);
 check('s01: is_admin() = false', r.rows?.[0]?.a === false, r);
 
+// ---- 실명 (관리자만) ----
+r = await as('redsionkim', `insert into public.student_names (user_id, real_name) values ('${ids.s02}', '김민준')`);
+check('관리자: 실명 입력', !r.error, r);
+r = await as('redsionkim', `select real_name from public.student_names`);
+check('관리자: 실명 보기', r.rows?.[0]?.real_name === '김민준', r);
+r = await as('s02', `select real_name from public.student_names`);
+check('학생: 실명 읽기 0건 (자기 것도)', !r.error && r.rows.length === 0, r);
+r = await as('s01', `insert into public.student_names (user_id, real_name) values ('${ids.s01}', '가짜')`);
+check('학생: 실명 쓰기 거부', !!r.error, r);
+r = await as('s02', `update public.student_names set real_name='바꿈'`);
+check('학생: 실명 고치기 0건', !r.error && r.affected === 0, r);
+r = await as('anon', `select * from public.student_names`);
+check('비로그인: 실명 거부', !!r.error, r);
+
 // ---- 첨부 파일 ----
 r = await db.query(`select public, file_size_limit from storage.buckets where id='attachments'`);
 check('보관함: 비공개, 50MB 제한', r.rows[0]?.public === false && Number(r.rows[0]?.file_size_limit) === 52428800, r.rows);

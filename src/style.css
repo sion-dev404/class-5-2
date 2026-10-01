@@ -532,3 +532,22 @@ input[type='file'] {
     font-size: 1.3rem;
   }
 }
+
+/* ---------- 학생 관리 ---------- */
+
+.name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.name-row label {
+  flex: 1 1 140px;
+  margin: 0;
+  font-weight: 400;
+}
+
+.name-row input {
+  flex: 1 1 160px;
+}
