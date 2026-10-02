@@ -1048,3 +1048,76 @@ label.pick input {
     top: 16px;
   }
 }
+
+/* ---------- 순위 (학생) ---------- */
+
+.rank-table tr.me td {
+  background: #eef3fe;
+  font-weight: 600;
+}
+
+/* ---------- 자리 뽑기 ---------- */
+
+a.button.secondary-link {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+a.button.secondary-link:hover {
+  background: var(--bg);
+}
+
+button.big {
+  padding: 12px 24px;
+  font-size: 1.1rem;
+}
+
+.seat-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.seat-board .card {
+  margin: 0;
+}
+
+.seat-group h3 {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+}
+
+.seat-group.bad {
+  border-color: var(--error-text);
+}
+
+.seat-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+button.seat {
+  width: 100%;
+  padding: 10px 6px;
+  font-size: 0.95rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
+button.seat:hover {
+  background: #eef3fe;
+}
+
+button.seat.picked {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}

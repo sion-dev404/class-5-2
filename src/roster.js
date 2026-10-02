@@ -2,7 +2,7 @@ import { supabase } from './supabase.js';
 import { displayName, el, message } from './ui.js';
 import { withRealName } from './realnames.js';
 
-// 우리 반 학생 명단 (학생 계정 전체, 아이디 순서: s02 ~ s25, s15 없음)
+// 우리 반 학생 명단 (role = student 인 계정 전체, 아이디 순서). 계정을 만들거나 지우면 자동 반영
 export function fetchRoster() {
   return supabase.from('profiles').select('id, username, nickname').eq('role', 'student').order('username');
 }

@@ -4,15 +4,57 @@ import { realNames, withRealName } from '../realnames.js';
 import { fetchRoster } from '../roster.js';
 import { displayName, el, errorBox, formatDateTime, loading, message, withBusy } from '../ui.js';
 
-export const title = '점수';
+export const title = '순위';
 
-// #/points : 관리자만. 칭찬·활동 점수 주기와 순위 (학생은 볼 수 없음)
-export async function render(view, ctx) {
-  if (!isAdmin(ctx.user)) {
-    view.append(message('선생님만 볼 수 있는 화면이에요.', 'error'));
+const medalOf = (rank) => (rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '');
+
+// 학생용: 등수만 (점수 숫자는 서버가 알려 주지 않음)
+async function renderStudentRanking(view, ctx) {
+  view.append(el('h1', {}, '순위'), message('점수는 선생님만 볼 수 있어요. 여기서는 등수만 보여요.', 'ok'));
+  const box = el('div', {}, loading());
+  view.append(box);
+  const [{ data: ranks, error }, { data: roster }] = await Promise.all([supabase.rpc('points_ranking'), fetchRoster()]);
+  if (error) {
+    box.replaceChildren(errorBox(error));
     return;
   }
-  view.append(el('h1', {}, '점수 랭킹'), message('🔒 점수는 선생님(관리자)에게만 보여요. 학생은 자기 점수도 볼 수 없어요.', 'ok'));
+  const byId = new Map((roster ?? []).map((s) => [s.id, s]));
+  const rows = [...ranks].sort((a, b) => a.rank - b.rank || (byId.get(a.user_id)?.username ?? '').localeCompare(byId.get(b.user_id)?.username ?? ''));
+  box.replaceChildren(
+    el(
+      'section',
+      { class: 'card' },
+      el(
+        'div',
+        { class: 'table-wrap' },
+        el(
+          'table',
+          { class: 'rank-table' },
+          el('thead', {}, el('tr', {}, el('th', {}, '순위'), el('th', {}, '학생'))),
+          el(
+            'tbody',
+            {},
+            rows.map((row) => {
+              const rank = Number(row.rank);
+              const student = byId.get(row.user_id);
+              return el(
+                'tr',
+                { class: row.user_id === ctx.user.id ? 'me' : null },
+                el('td', {}, `${medalOf(rank)}${rank}`),
+                el('td', {}, student ? displayName(student) : '', row.user_id === ctx.user.id ? el('span', { class: 'badge later' }, ' 나') : null),
+              );
+            }),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+// #/points : 학생은 등수만, 선생님은 점수·점수 주기·기록까지
+export async function render(view, ctx) {
+  if (!isAdmin(ctx.user)) return renderStudentRanking(view, ctx);
+  view.append(el('h1', {}, '순위 · 점수'), message('🔒 점수 숫자는 선생님(관리자)에게만 보여요. 학생들은 등수만 볼 수 있어요.', 'ok'));
   const box = el('div', {}, loading());
   view.append(box);
 
@@ -55,8 +97,7 @@ export async function render(view, ctx) {
             const total = totals.get(s.id);
             if (total !== prev) rank = i + 1;
             prev = total;
-            const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '';
-            return el('tr', {}, el('td', {}, `${medal}${rank}`), el('td', {}, label(s)), el('td', { class: 'num' }, String(total)), el('td', { class: 'num' }, String(quizTotals.get(s.id) ?? 0)));
+            return el('tr', {}, el('td', {}, `${medalOf(rank)}${rank}`), el('td', {}, label(s)), el('td', { class: 'num' }, String(total)), el('td', { class: 'num' }, String(quizTotals.get(s.id) ?? 0)));
           }),
         ),
       ),

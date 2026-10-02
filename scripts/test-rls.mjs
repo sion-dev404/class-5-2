@@ -314,6 +314,27 @@ check('비로그인: 점수 거부', !!r.error, r);
 r = await as('redsionkim', `select sum(points)::int as s from public.points`);
 check('관리자: 점수 합계', r.rows?.[0]?.s === 8, r);
 
+// ---- 순위 (학생은 등수만) ----
+r = await as('s02', `select * from public.points_ranking() order by rank`);
+check('학생: 순위 보기 (등수만)', r.rows?.length >= 2 && r.rows[0].user_id === ids.s01 && Number(r.rows[0].rank) === 1 && !('points' in r.rows[0]), r);
+check('순위: 관리자 계정은 빠짐', !r.rows.some((row) => row.user_id === ids.redsionkim), r);
+r = await as('anon', `select * from public.points_ranking()`);
+check('비로그인: 순위 거부', !!r.error || r.rows.length === 0, r);
+
+// ---- 자리 뽑기 (관리자만) ----
+r = await as('s01', `insert into public.seat_rules (member_ids) values (array['${ids.s01}', '${ids.s02}']::uuid[])`);
+check('학생: 자리 설정 거부', !!r.error, r);
+r = await as('redsionkim', `insert into public.seat_rules (member_ids, note) values (array['${ids.s01}', '${ids.s02}']::uuid[], '떨어뜨리기')`);
+check('관리자: 같은 모둠 금지 설정', !r.error, r);
+r = await as('redsionkim', `insert into public.seat_rules (member_ids) values (array['${ids.s01}']::uuid[])`);
+check('금지 묶음은 2명 이상', !!r.error, r);
+r = await as('s01', `select * from public.seat_rules`);
+check('학생: 자리 설정 읽기 0건', !r.error && r.rows.length === 0, r);
+r = await as('redsionkim', `insert into public.seat_draws (group_size, groups) values (4, '[["${ids.s01}"],["${ids.s02}"]]')`);
+check('관리자: 자리 저장', !r.error, r);
+r = await as('s02', `select * from public.seat_draws`);
+check('학생: 자리 기록 읽기 0건', !r.error && r.rows.length === 0, r);
+
 // ---- 실명 (관리자만) ----
 r = await as('redsionkim', `insert into public.student_names (user_id, real_name) values ('${ids.s02}', '김민준')`);
 check('관리자: 실명 입력', !r.error, r);

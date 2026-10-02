@@ -17,7 +17,7 @@ where username not in ('redsionkim', 'teacher0502')
   and role = 'admin';
 
 -- 3) 결과 확인 : 관리자 2명이 맨 위, 그 아래 학생들
---    학생은 s02 ~ s25 중 s15를 뺀 23명이면 정상입니다.
+--    학생 수가 우리 반 인원(24명)과 같으면 정상입니다.
 select username as 아이디, role as 역할, nickname as 별명
 from public.profiles
 order by role, username;

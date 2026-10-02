@@ -306,6 +306,26 @@ create index if not exists points_user_id_idx on public.points (user_id);
 
 
 -- ---------------------------------------------------------------------
+-- 6-12. 자리 뽑기 (선생님만)
+--       seat_rules : "같은 모둠 금지" 묶음 (묶음 안의 학생끼리는 같은 모둠이 되지 않음)
+--       seat_draws : 저장한 자리 배치 기록 (모둠별 학생 목록)
+-- ---------------------------------------------------------------------
+create table if not exists public.seat_rules (
+  id         bigint generated always as identity primary key,
+  member_ids uuid[] not null check (array_length(member_ids, 1) between 2 and 12),   -- 서로 떨어져야 하는 학생들
+  note       text check (note is null or char_length(note) <= 50),                     -- 메모 (선택)
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.seat_draws (
+  id         bigint generated always as identity primary key,
+  group_size smallint not null check (group_size between 2 and 8),                     -- 모둠 크기
+  groups     jsonb not null,                                                            -- [[학생ID, ...], [학생ID, ...], ...]
+  created_at timestamptz not null default now()
+);
+
+
+-- ---------------------------------------------------------------------
 -- 6-4. student_names : 학생 실명 (관리용)
 --      관리자(선생님)만 읽고 쓸 수 있습니다. 학생은 친구 실명을 볼 수 없습니다.
 --      (profiles와 따로 둔 이유: profiles는 반 전체가 읽을 수 있기 때문)
@@ -380,6 +400,10 @@ grant insert (post_id) on public.post_likes to authenticated;
 revoke all on public.jobs, public.job_assignments, public.events, public.points from anon, authenticated;
 grant select, insert, update, delete on public.jobs, public.job_assignments, public.events, public.points to authenticated;
 
+-- seat_rules, seat_draws : 선생님만 (아래 RLS)
+revoke all on public.seat_rules, public.seat_draws from anon, authenticated;
+grant select, insert, update, delete on public.seat_rules, public.seat_draws to authenticated;
+
 -- job_checks : 읽기, "오늘 했어요" 체크와 취소
 revoke all on public.job_checks from anon, authenticated;
 grant select, delete on public.job_checks to authenticated;
@@ -418,6 +442,8 @@ alter table public.job_assignments enable row level security;
 alter table public.job_checks enable row level security;
 alter table public.events enable row level security;
 alter table public.points enable row level security;
+alter table public.seat_rules enable row level security;
+alter table public.seat_draws enable row level security;
 
 -- ---- profiles ----
 drop policy if exists "profiles: 로그인하면 읽기" on public.profiles;
@@ -637,6 +663,16 @@ create policy "points: 관리자만" on public.points
   for all to authenticated
   using ((select public.is_admin())) with check ((select public.is_admin()));
 
+-- ---- seat_rules, seat_draws : 관리자만 (학생은 읽기도 안 됨) ----
+drop policy if exists "seat_rules: 관리자만" on public.seat_rules;
+create policy "seat_rules: 관리자만" on public.seat_rules
+  for all to authenticated
+  using ((select public.is_admin())) with check ((select public.is_admin()));
+drop policy if exists "seat_draws: 관리자만" on public.seat_draws;
+create policy "seat_draws: 관리자만" on public.seat_draws
+  for all to authenticated
+  using ((select public.is_admin())) with check ((select public.is_admin()));
+
 -- ---- student_names : 관리자만 (학생은 읽기도 안 됨) ----
 drop policy if exists "student_names: 관리자만" on public.student_names;
 create policy "student_names: 관리자만" on public.student_names
@@ -804,6 +840,28 @@ $$;
 
 revoke execute on function public.submit_quiz(bigint, jsonb), public.quiz_review(bigint), public.quiz_participation(bigint) from public, anon;
 grant execute on function public.submit_quiz(bigint, jsonb), public.quiz_review(bigint), public.quiz_participation(bigint) to authenticated;
+
+
+-- =====================================================================
+-- 11. 순위 함수 : 학생에게는 "등수"만 알려 줌 (점수 숫자는 안 알려 줌)
+--     같은 점수는 같은 등수. 점수 기록이 없는 학생은 0점으로 계산
+-- =====================================================================
+create or replace function public.points_ranking()
+returns table (user_id uuid, rank bigint)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select p.id, rank() over (order by coalesce(sum(pt.points), 0) desc)
+  from public.profiles p
+  left join public.points pt on pt.user_id = p.id
+  where p.role = 'student' and (select auth.uid()) is not null
+  group by p.id;
+$$;
+
+revoke execute on function public.points_ranking() from public, anon;
+grant execute on function public.points_ranking() to authenticated;
 
 
 -- =====================================================================
