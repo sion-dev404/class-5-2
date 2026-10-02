@@ -36,9 +36,13 @@ export function render(view, ctx) {
     el(
       'div',
       { class: 'home-grid' },
-      section('#/lessons', '오늘의 수업', lessonsBox),
-      section('#/homework', '다가오는 숙제', homeworkBox),
-      section('#/meal', '오늘 급식', mealBox),
+      el(
+        'div',
+        { class: 'home-left' },
+        section('#/lessons', '오늘의 수업', lessonsBox),
+        section('#/homework', '다가오는 숙제', homeworkBox),
+        section('#/meal', '오늘 급식', mealBox),
+      ),
       calendarSection(ctx),
     ),
   );

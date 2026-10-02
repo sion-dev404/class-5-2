@@ -420,6 +420,12 @@ a.button:hover {
   margin: 0;
 }
 
+.home-left {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
 .home-grid h2 a {
   color: inherit;
   text-decoration: none;
@@ -1023,4 +1029,22 @@ label.pick {
 
 label.pick input {
   width: auto;
+}
+
+/* ---------- 홈: PC에서는 왼쪽(수업·숙제·급식) / 오른쪽(캘린더) 두 칸 ---------- */
+
+@media (min-width: 900px) {
+  main:has(.home-grid) {
+    max-width: 1120px;
+  }
+
+  .home-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+    align-items: start;
+  }
+
+  .home-grid > .calendar {
+    position: sticky;
+    top: 16px;
+  }
 }
