@@ -1,4 +1,5 @@
 import { isAdmin } from '../auth.js';
+import { calendarSection } from '../calendar.js';
 import { fetchMeal } from '../meal.js';
 import { el, errorBox, formatDate, loading, message, today } from '../ui.js';
 import { fetchLessons, lessonHeading } from './lessons.js';
@@ -7,7 +8,7 @@ import { dishList } from './meal.js';
 
 export const title = '홈';
 
-// 오늘의 수업 · 가까운 숙제 · 오늘 급식을 한눈에 (세 칸이 각자 따로 불러옴)
+// 오늘의 수업 · 가까운 숙제 · 오늘 급식 · 캘린더를 한눈에 (칸마다 따로 불러옴)
 export function render(view, ctx) {
   const name = isAdmin(ctx.user) ? '선생님' : `${ctx.user.nickname ?? ctx.user.username}님`;
 
@@ -38,6 +39,7 @@ export function render(view, ctx) {
       section('#/lessons', '오늘의 수업', lessonsBox),
       section('#/homework', '다가오는 숙제', homeworkBox),
       section('#/meal', '오늘 급식', mealBox),
+      calendarSection(ctx),
     ),
   );
 

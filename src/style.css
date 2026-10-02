@@ -745,3 +745,282 @@ label.choice:has(input:checked) {
 .list.compact > li {
   padding: 8px 16px;
 }
+
+/* ---------- 공감 ---------- */
+
+.likes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 16px;
+}
+
+.like-button {
+  background: var(--surface);
+  color: #d6336c;
+  border-color: #f5b5c8;
+  border-radius: 999px;
+}
+
+.like-button:hover {
+  background: #fff0f5;
+}
+
+.like-button.liked {
+  background: #d6336c;
+  color: #fff;
+  border-color: #d6336c;
+}
+
+.like-count {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #d6336c;
+}
+
+/* ---------- 캘린더 ---------- */
+
+.cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.cal-head h2 {
+  margin: 0;
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.cal-weekdays div {
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--muted);
+  padding: 4px 0;
+}
+
+.cal-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 64px;
+  padding: 4px 6px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  text-align: left;
+  overflow: hidden;
+}
+
+.cal-cell:hover {
+  background: var(--bg);
+}
+
+.cal-cell.empty {
+  border: none;
+  background: transparent;
+}
+
+.cal-cell.sun .cal-day {
+  color: var(--error-text);
+}
+
+.cal-cell.sat .cal-day {
+  color: var(--primary);
+}
+
+.cal-cell.today {
+  border-color: var(--primary);
+  border-width: 2px;
+}
+
+.cal-cell.selected {
+  background: #eef3fe;
+}
+
+.cal-day {
+  font-weight: 600;
+}
+
+.cal-dots {
+  display: flex;
+  gap: 3px;
+}
+
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.dot.event {
+  background: var(--primary);
+}
+
+.dot.homework {
+  background: #e8890c;
+}
+
+.cal-label {
+  width: 100%;
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cal-legend {
+  margin: 8px 0;
+}
+
+.cal-day-list h3 {
+  margin: 12px 0 4px;
+  font-size: 1rem;
+}
+
+.cal-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.cal-form input[type='date'] {
+  width: auto;
+}
+
+.cal-form input:not([type='date']) {
+  flex: 1 1 160px;
+  width: auto;
+}
+
+@media (max-width: 600px) {
+  .cal-cell {
+    min-height: 44px;
+    padding: 3px;
+  }
+
+  .cal-label {
+    display: none;
+  }
+}
+
+/* ---------- 갤러리 ---------- */
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.gallery-item {
+  position: relative;
+  display: block;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--border);
+}
+
+.gallery-item img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.gallery-caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  color: #fff;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.65));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.actions.center {
+  justify-content: center;
+}
+
+/* ---------- 1인1역 ---------- */
+
+.my-job h2 {
+  margin-bottom: 4px;
+}
+
+.list.compact .chip {
+  display: inline-block;
+  margin: 4px 4px 0 0;
+}
+
+.name-row select {
+  width: auto;
+  flex: 1 1 140px;
+}
+
+/* ---------- 점수 ---------- */
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.rank-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.rank-table th,
+.rank-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.rank-table th {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.rank-table th.num,
+.rank-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.student-picks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 4px 12px;
+}
+
+label.pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-weight: 400;
+}
+
+label.pick input {
+  width: auto;
+}

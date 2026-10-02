@@ -241,6 +241,71 @@ create table if not exists public.quiz_attempts (
 
 
 -- ---------------------------------------------------------------------
+-- 6-8. post_likes : 글 공감 (한 사람이 글 하나에 한 번)
+-- ---------------------------------------------------------------------
+create table if not exists public.post_likes (
+  post_id    bigint not null references public.posts (id) on delete cascade,
+  user_id    uuid not null default auth.uid() references public.profiles (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (post_id, user_id)
+);
+
+
+-- ---------------------------------------------------------------------
+-- 6-9. 1인1역
+--      jobs            : 역할 (선생님이 만듦)
+--      job_assignments : 학생별 역할 (한 학생에 하나)
+--      job_checks      : "오늘 했어요" 기록 (날짜별)
+-- ---------------------------------------------------------------------
+create table if not exists public.jobs (
+  id          bigint generated always as identity primary key,
+  name        text not null check (char_length(name) between 1 and 30),               -- 역할 이름 (예: 칠판 지우기)
+  description text check (description is null or char_length(description) <= 200),   -- 하는 일 (선택)
+  created_at  timestamptz not null default now()
+);
+
+create table if not exists public.job_assignments (
+  user_id    uuid primary key references public.profiles (id) on delete cascade,       -- 학생 (한 명에 역할 하나)
+  job_id     bigint not null references public.jobs (id) on delete cascade,             -- 역할 (지우면 배정도 지워짐)
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.job_checks (
+  user_id    uuid not null default auth.uid() references public.profiles (id) on delete cascade,
+  check_date date not null default ((now() at time zone 'Asia/Seoul')::date),            -- 한 날짜 (한국 시간)
+  created_at timestamptz not null default now(),
+  primary key (user_id, check_date)
+);
+
+
+-- ---------------------------------------------------------------------
+-- 6-10. events : 학급 일정 (홈 캘린더, 선생님이 입력)
+-- ---------------------------------------------------------------------
+create table if not exists public.events (
+  id         bigint generated always as identity primary key,
+  event_date date not null,
+  title      text not null check (char_length(title) between 1 and 50),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists events_date_idx on public.events (event_date);
+
+
+-- ---------------------------------------------------------------------
+-- 6-11. points : 칭찬·활동 점수 (선생님만 주고, 선생님만 봄)
+-- ---------------------------------------------------------------------
+create table if not exists public.points (
+  id         bigint generated always as identity primary key,
+  user_id    uuid not null references public.profiles (id) on delete cascade,
+  points     integer not null check (points between -100 and 100 and points <> 0),   -- 줄 점수 (빼기도 가능)
+  reason     text check (reason is null or char_length(reason) <= 100),                 -- 이유 (선택)
+  created_at timestamptz not null default now()
+);
+
+create index if not exists points_user_id_idx on public.points (user_id);
+
+
+-- ---------------------------------------------------------------------
 -- 6-4. student_names : 학생 실명 (관리용)
 --      관리자(선생님)만 읽고 쓸 수 있습니다. 학생은 친구 실명을 볼 수 없습니다.
 --      (profiles와 따로 둔 이유: profiles는 반 전체가 읽을 수 있기 때문)
@@ -306,6 +371,20 @@ grant select, insert, update, delete on public.topics, public.quizzes, public.qu
 revoke all on public.quiz_attempts from anon, authenticated;
 grant select, delete on public.quiz_attempts to authenticated;
 
+-- post_likes : 읽기, 공감(어느 글인지만), 공감 취소
+revoke all on public.post_likes from anon, authenticated;
+grant select, delete on public.post_likes to authenticated;
+grant insert (post_id) on public.post_likes to authenticated;
+
+-- jobs, job_assignments, events, points : 권한은 열어 두되, 아래 RLS가 관리자만 쓰게(points는 읽기도) 함
+revoke all on public.jobs, public.job_assignments, public.events, public.points from anon, authenticated;
+grant select, insert, update, delete on public.jobs, public.job_assignments, public.events, public.points to authenticated;
+
+-- job_checks : 읽기, "오늘 했어요" 체크와 취소
+revoke all on public.job_checks from anon, authenticated;
+grant select, delete on public.job_checks to authenticated;
+grant insert (user_id, check_date) on public.job_checks to authenticated;
+
 -- comments : 읽기, 쓰기(어느 글에·내용만), 지우기. 고치기는 없음
 revoke all on public.comments from anon, authenticated;
 grant select, delete on public.comments to authenticated;
@@ -333,6 +412,12 @@ alter table public.quizzes enable row level security;
 alter table public.quiz_questions enable row level security;
 alter table public.quiz_keys enable row level security;
 alter table public.quiz_attempts enable row level security;
+alter table public.post_likes enable row level security;
+alter table public.jobs enable row level security;
+alter table public.job_assignments enable row level security;
+alter table public.job_checks enable row level security;
+alter table public.events enable row level security;
+alter table public.points enable row level security;
 
 -- ---- profiles ----
 drop policy if exists "profiles: 로그인하면 읽기" on public.profiles;
@@ -490,6 +575,67 @@ drop policy if exists "quiz_attempts: 관리자만 지우기" on public.quiz_att
 create policy "quiz_attempts: 관리자만 지우기" on public.quiz_attempts
   for delete to authenticated
   using ((select public.is_admin()));
+
+-- ---- post_likes : 누구나 보기, 내 이름으로만 공감·취소 ----
+drop policy if exists "post_likes: 로그인하면 읽기" on public.post_likes;
+create policy "post_likes: 로그인하면 읽기" on public.post_likes
+  for select to authenticated using (true);
+drop policy if exists "post_likes: 내 공감만 누르기" on public.post_likes;
+create policy "post_likes: 내 공감만 누르기" on public.post_likes
+  for insert to authenticated with check (user_id = (select auth.uid()));
+drop policy if exists "post_likes: 내 공감만 취소" on public.post_likes;
+create policy "post_likes: 내 공감만 취소" on public.post_likes
+  for delete to authenticated using (user_id = (select auth.uid()));
+
+-- ---- jobs, job_assignments, events : 로그인하면 읽기, 관리자만 쓰기 ----
+drop policy if exists "jobs: 로그인하면 읽기" on public.jobs;
+create policy "jobs: 로그인하면 읽기" on public.jobs
+  for select to authenticated using (true);
+drop policy if exists "jobs: 관리자만 쓰고 고치고 지우기" on public.jobs;
+create policy "jobs: 관리자만 쓰고 고치고 지우기" on public.jobs
+  for all to authenticated
+  using ((select public.is_admin())) with check ((select public.is_admin()));
+
+drop policy if exists "job_assignments: 로그인하면 읽기" on public.job_assignments;
+create policy "job_assignments: 로그인하면 읽기" on public.job_assignments
+  for select to authenticated using (true);
+drop policy if exists "job_assignments: 관리자만 쓰고 고치고 지우기" on public.job_assignments;
+create policy "job_assignments: 관리자만 쓰고 고치고 지우기" on public.job_assignments
+  for all to authenticated
+  using ((select public.is_admin())) with check ((select public.is_admin()));
+
+drop policy if exists "events: 로그인하면 읽기" on public.events;
+create policy "events: 로그인하면 읽기" on public.events
+  for select to authenticated using (true);
+drop policy if exists "events: 관리자만 쓰고 고치고 지우기" on public.events;
+create policy "events: 관리자만 쓰고 고치고 지우기" on public.events
+  for all to authenticated
+  using ((select public.is_admin())) with check ((select public.is_admin()));
+
+-- ---- job_checks : 누구나 현황 보기. 학생은 "오늘" 내 것만 체크·취소, 관리자는 누구 것이든 ----
+drop policy if exists "job_checks: 로그인하면 읽기" on public.job_checks;
+create policy "job_checks: 로그인하면 읽기" on public.job_checks
+  for select to authenticated using (true);
+drop policy if exists "job_checks: 오늘 내 것만 체크 (관리자는 모두)" on public.job_checks;
+create policy "job_checks: 오늘 내 것만 체크 (관리자는 모두)" on public.job_checks
+  for insert to authenticated
+  with check (
+    (user_id = (select auth.uid()) and check_date = (now() at time zone 'Asia/Seoul')::date)
+    or (select public.is_admin())
+  );
+drop policy if exists "job_checks: 오늘 내 것만 취소 (관리자는 모두)" on public.job_checks;
+create policy "job_checks: 오늘 내 것만 취소 (관리자는 모두)" on public.job_checks
+  for delete to authenticated
+  using (
+    (user_id = (select auth.uid()) and check_date = (now() at time zone 'Asia/Seoul')::date)
+    or (select public.is_admin())
+  );
+
+-- ---- points : 관리자만 (학생은 자기 점수도 못 읽음) ----
+drop policy if exists "points: 관리자만" on public.points;
+create policy "points: 관리자만" on public.points
+  for all to authenticated
+  using ((select public.is_admin())) with check ((select public.is_admin()));
 
 -- ---- student_names : 관리자만 (학생은 읽기도 안 됨) ----
 drop policy if exists "student_names: 관리자만" on public.student_names;

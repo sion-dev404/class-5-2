@@ -12,6 +12,9 @@ import * as meal from './pages/meal.js';
 import * as admin from './pages/admin.js';
 import * as topics from './pages/topics.js';
 import * as quiz from './pages/quiz.js';
+import * as gallery from './pages/gallery.js';
+import * as jobs from './pages/jobs.js';
+import * as points from './pages/points.js';
 
 // 주소의 # 뒤 첫 부분 → 페이지 (예: #/board/12 → board, 나머지 ['12']는 params)
 const routes = {
@@ -24,6 +27,9 @@ const routes = {
   admin,
   topics,
   quiz,
+  gallery,
+  jobs,
+  points,
   login,
 };
 
@@ -46,6 +52,7 @@ function parseHash() {
 function updateHeader(user, name) {
   menu.hidden = !user;
   document.getElementById('admin-link').hidden = !isAdmin(user);
+  document.getElementById('points-link').hidden = !isAdmin(user);
   menu.querySelectorAll('a').forEach((a) => {
     a.classList.toggle('active', a.getAttribute('href') === `#/${name}`);
   });

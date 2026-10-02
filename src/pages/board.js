@@ -57,7 +57,7 @@ async function renderList(view, ctx) {
     if (onlyBoard) query = query.is('topic_id', null);
     return query.order('created_at', { ascending: false }).range(from, from + PAGE_SIZE - 1);
   };
-  let { data, error, count } = await fetchPage('id, title, created_at, author_id, author:profiles(username, nickname), post_files(count), comments(count)');
+  let { data, error, count } = await fetchPage('id, title, created_at, author_id, author:profiles(username, nickname), post_files(count), comments(count), post_likes(count)');
   // SQL(schema.sql)을 아직 다시 실행하지 않아 표·칸이 없으면, 📎·댓글 수 없이 기본 목록만
   if (['PGRST200', 'PGRST205', '42703'].includes(error?.code)) {
     ({ data, error, count } = await fetchPage('id, title, created_at, author_id, author:profiles(username, nickname)', false));
@@ -79,6 +79,7 @@ async function renderList(view, ctx) {
     data.map((post) => {
       const fileCount = post.post_files?.[0]?.count ?? 0;
       const commentCount = post.comments?.[0]?.count ?? 0;
+      const likeCount = post.post_likes?.[0]?.count ?? 0;
       return el(
         'li',
         {},
@@ -90,6 +91,7 @@ async function renderList(view, ctx) {
             { class: 'row-title' },
             post.title,
             commentCount ? el('span', { class: 'comment-count', title: `댓글 ${commentCount}개` }, ` [${commentCount}]`) : null,
+            likeCount ? el('span', { class: 'like-count', title: `공감 ${likeCount}개` }, ` ♥${likeCount}`) : null,
             fileCount ? el('span', { class: 'clip', title: `첨부 ${fileCount}개` }, ` 📎${fileCount}`) : null,
           ),
           el('div', { class: 'row-meta' }, `${withRealName(displayName(post.author), post.author_id, names)} · ${formatDateTime(post.created_at)}`),
@@ -154,7 +156,7 @@ async function attachmentsSection(files) {
 async function renderPost(view, ctx, id) {
   view.append(loading());
 
-  const [{ data: post, error }, { data: files, error: filesError }, names, comments] = await Promise.all([
+  const [{ data: post, error }, { data: files, error: filesError }, names, comments, likes] = await Promise.all([
     supabase
       .from('posts')
       .select('*, author:profiles(username, nickname)')
@@ -163,6 +165,7 @@ async function renderPost(view, ctx, id) {
     listFiles(id),
     realNames(ctx.user),
     fetchComments(id),
+    fetchLikes(id),
   ]);
 
   if (error) {
@@ -225,6 +228,7 @@ async function renderPost(view, ctx, id) {
       ),
       el('p', { class: 'body-text' }, post.content),
       attachments,
+      likeSection(id, likes, ctx),
       commentsSection(id, comments, ctx, names),
       el(
         'div',
@@ -236,6 +240,44 @@ async function renderPost(view, ctx, id) {
       ),
       status,
     ),
+  );
+}
+
+// ---------- 공감 ----------
+
+async function fetchLikes(postId) {
+  const result = await supabase.from('post_likes').select('user_id, user:profiles(username, nickname)').eq('post_id', postId).order('created_at');
+  // 공감 표가 아직 없으면(SQL 실행 전) 공감 칸을 숨김
+  if (result.error?.code === 'PGRST205' || result.error?.code === 'PGRST200') return { missing: true };
+  return result;
+}
+
+function likeSection(postId, likes, ctx) {
+  if (likes.missing) return null;
+  if (likes.error) return errorBox(likes.error);
+  const list = likes.data;
+  const liked = list.some((like) => like.user_id === ctx.user.id);
+  const status = el('div');
+  const button = el(
+    'button',
+    { type: 'button', class: `like-button ${liked ? 'liked' : ''}`, 'aria-pressed': liked ? 'true' : 'false' },
+    `${liked ? '♥' : '♡'} 공감 ${list.length}`,
+  );
+  button.addEventListener('click', () =>
+    withBusy(button, async () => {
+      const { error } = liked
+        ? await supabase.from('post_likes').delete().eq('post_id', postId).eq('user_id', ctx.user.id)
+        : await supabase.from('post_likes').insert({ post_id: postId });
+      if (error) return status.replaceChildren(errorBox(error));
+      ctx.refresh();
+    }),
+  );
+  return el(
+    'div',
+    { class: 'likes' },
+    button,
+    list.length ? el('span', { class: 'row-meta' }, `공감한 친구: ${list.map((like) => displayName(like.user)).join(', ')}`) : null,
+    status,
   );
 }
 

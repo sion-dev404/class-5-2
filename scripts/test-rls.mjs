@@ -249,6 +249,71 @@ r = await as('redsionkim', `delete from public.quizzes where id=${quizId}`);
 r = await db.query(`select count(*)::int as n from public.quiz_keys`);
 check('퀴즈 삭제 시 문제·정답도 삭제', r.rows[0].n === 0, r.rows);
 
+// ---- 공감 ----
+r = await as('s01', `insert into public.posts (title, content) values ('공감 글', '눌러 줘') returning id`);
+const likePost = r.rows[0].id;
+r = await as('s02', `insert into public.post_likes (post_id) values (${likePost})`);
+check('s02: 공감 누르기', !r.error, r);
+r = await as('s02', `insert into public.post_likes (post_id) values (${likePost})`);
+check('공감 두 번 거부', !!r.error, r);
+r = await as('s02', `insert into public.post_likes (post_id, user_id) values (${likePost}, '${ids.s01}')`);
+check('남의 이름으로 공감 거부', !!r.error, r);
+r = await as('s01', `select user_id from public.post_likes where post_id=${likePost}`);
+check('공감한 사람 보기', r.rows?.length === 1, r);
+r = await as('s01', `delete from public.post_likes where post_id=${likePost}`);
+check('남의 공감 취소 0건', !r.error && r.affected === 0, r);
+r = await as('s02', `delete from public.post_likes where post_id=${likePost}`);
+check('내 공감 취소', !r.error && r.affected === 1, r);
+
+// ---- 1인1역 ----
+r = await as('s01', `insert into public.jobs (name) values ('반장')`);
+check('학생: 역할 만들기 거부', !!r.error, r);
+r = await as('redsionkim', `insert into public.jobs (name, description) values ('칠판 지우기', '쉬는 시간마다') returning id`);
+const jobId = r.rows[0].id;
+r = await as('redsionkim', `insert into public.job_assignments (user_id, job_id) values ('${ids.s01}', ${jobId}), ('${ids.s02}', ${jobId})`);
+check('관리자: 역할 배정', !r.error, r);
+r = await as('s01', `update public.job_assignments set job_id=${jobId} where user_id='${ids.s02}'`);
+check('학생: 배정 바꾸기 0건', !r.error && r.affected === 0, r);
+r = await as('s01', `insert into public.job_checks (user_id) values ('${ids.s01}')`);
+check('학생: 오늘 했어요 체크', !r.error, r);
+r = await as('s01', `insert into public.job_checks (user_id, check_date) values ('${ids.s01}', '2020-01-01')`);
+check('학생: 지난 날짜 체크 거부', !!r.error, r);
+r = await as('s01', `insert into public.job_checks (user_id) values ('${ids.s02}')`);
+check('학생: 친구 대신 체크 거부', !!r.error, r);
+r = await as('s02', `select user_id from public.job_checks`);
+check('현황 보기 (누가 했는지)', r.rows?.length === 1, r);
+r = await as('redsionkim', `insert into public.job_checks (user_id, check_date) values ('${ids.s02}', '2020-01-01')`);
+check('관리자: 다른 학생·날짜 체크', !r.error, r);
+r = await as('s02', `delete from public.job_checks where check_date='2020-01-01'`);
+check('학생: 지난 기록 지우기 0건', !r.error && r.affected === 0, r);
+r = await as('s01', `delete from public.job_checks where user_id='${ids.s01}'`);
+check('학생: 오늘 체크 취소', !r.error && r.affected === 1, r);
+r = await as('redsionkim', `delete from public.jobs where id=${jobId}`);
+r = await db.query(`select count(*)::int as n from public.job_assignments`);
+check('역할 삭제 시 배정도 삭제', r.rows[0].n === 0, r.rows);
+
+// ---- 일정 ----
+r = await as('s01', `insert into public.events (event_date, title) values ('2026-10-09', '한글날')`);
+check('학생: 일정 쓰기 거부', !!r.error, r);
+r = await as('redsionkim', `insert into public.events (event_date, title) values ('2026-10-09', '한글날')`);
+check('관리자: 일정 쓰기', !r.error, r);
+r = await as('s01', `select title from public.events`);
+check('학생: 일정 보기', r.rows?.length === 1, r);
+
+// ---- 점수 (관리자만) ----
+r = await as('s01', `insert into public.points (user_id, points) values ('${ids.s01}', 100)`);
+check('학생: 점수 주기 거부', !!r.error, r);
+r = await as('redsionkim', `insert into public.points (user_id, points, reason) values ('${ids.s01}', 5, '발표'), ('${ids.s02}', 3, '청소')`);
+check('관리자: 점수 주기', !r.error, r);
+r = await as('redsionkim', `insert into public.points (user_id, points) values ('${ids.s01}', 0)`);
+check('0점은 거부', !!r.error, r);
+r = await as('s01', `select points from public.points`);
+check('학생: 점수 읽기 0건 (자기 것도)', !r.error && r.rows.length === 0, r);
+r = await as('anon', `select * from public.points`);
+check('비로그인: 점수 거부', !!r.error, r);
+r = await as('redsionkim', `select sum(points)::int as s from public.points`);
+check('관리자: 점수 합계', r.rows?.[0]?.s === 8, r);
+
 // ---- 실명 (관리자만) ----
 r = await as('redsionkim', `insert into public.student_names (user_id, real_name) values ('${ids.s02}', '김민준')`);
 check('관리자: 실명 입력', !r.error, r);

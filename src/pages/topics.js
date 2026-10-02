@@ -115,7 +115,7 @@ async function renderTopic(view, ctx, id) {
     supabase.from('topics').select('id, title, description, is_open, created_at').eq('id', id).maybeSingle(),
     supabase
       .from('posts')
-      .select('id, title, content, created_at, author_id, author:profiles(username, nickname), post_files(count), comments(count)')
+      .select('id, title, content, created_at, author_id, author:profiles(username, nickname), post_files(count), comments(count), post_likes(count)')
       .eq('topic_id', id)
       .order('created_at', { ascending: false }),
     fetchRoster(),
@@ -153,13 +153,14 @@ async function renderTopic(view, ctx, id) {
   const postItem = (post) => {
     const files = post.post_files?.[0]?.count ?? 0;
     const comments = post.comments?.[0]?.count ?? 0;
+    const likes = post.post_likes?.[0]?.count ?? 0;
     return el(
       'li',
       {},
       el(
         'a',
         { class: 'row-link', href: `#/board/${post.id}` },
-        el('div', { class: 'row-title' }, post.title, comments ? el('span', { class: 'comment-count' }, ` [${comments}]`) : null, files ? el('span', { class: 'clip' }, ` 📎${files}`) : null),
+        el('div', { class: 'row-title' }, post.title, comments ? el('span', { class: 'comment-count' }, ` [${comments}]`) : null, likes ? el('span', { class: 'like-count' }, ` ♥${likes}`) : null, files ? el('span', { class: 'clip' }, ` 📎${files}`) : null),
         el('div', { class: 'row-meta preview' }, post.content),
         el('div', { class: 'row-meta' }, `${withRealName(displayName(post.author), post.author_id, names)} · ${formatDateTime(post.created_at)}`),
       ),
