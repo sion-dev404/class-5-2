@@ -370,6 +370,55 @@ check('관리자: 자리 저장', !r.error, r);
 r = await as('s02', `select * from public.seat_draws`);
 check('학생: 자리 기록 읽기 0건', !r.error && r.rows.length === 0, r);
 
+// ---- 실시간 퀴즈 ----
+r = await as('redsionkim', `insert into public.quizzes (title, mode, time_limit_sec) values ('실시간 수도', 'live', 60) returning id`);
+const liveId = r.rows[0].id;
+r = await as('redsionkim', `insert into public.quiz_questions (quiz_id, position, question, choices) values (${liveId}, 1, '한국 수도?', array['부산','서울']), (${liveId}, 2, '일본 수도?', null) returning id`);
+const [lq1, lq2] = r.rows.map((row) => row.id);
+await as('redsionkim', `insert into public.quiz_keys (question_id, answer) values (${lq1}, '2'), (${lq2}, '도쿄')`);
+
+r = await as('s01', `select question from public.quiz_questions where quiz_id=${liveId}`);
+check('실시간: 시작 전 문제 0건', !r.error && r.rows.length === 0, r);
+r = await as('s01', `select public.answer_live(${lq1}, '2')`);
+check('실시간: 시작 전 답하기 거부', !!r.error, r);
+r = await as('s01', `select public.live_control(${liveId}, 'start')`);
+check('학생: 실시간 시작 거부', !!r.error, r);
+r = await as('s01', `select public.start_quiz(${liveId})`);
+check('실시간 퀴즈는 혼자 풀기 시작 거부', !!r.error, r);
+r = await as('s01', `select public.live_state(${liveId}) as st`);
+check('상태: 대기', r.rows?.[0]?.st?.status === 'waiting' && r.rows[0].st.total === 2, r);
+
+r = await as('redsionkim', `select public.live_control(${liveId}, 'start')`);
+check('관리자: 실시간 시작', !r.error, r);
+r = await as('s01', `select public.live_state(${liveId}) as st`);
+check('상태: 진행 중 + 서버 시각', r.rows?.[0]?.st?.status === 'running' && !!r.rows[0].st.started_at, r);
+r = await as('s01', `select question from public.quiz_questions where quiz_id=${liveId}`);
+check('실시간: 시작 후 문제 보임', r.rows?.length === 2, r);
+r = await as('s01', `select * from public.quiz_keys where question_id=${lq1}`);
+check('실시간: 정답은 여전히 0건', !r.error && r.rows.length === 0, r);
+r = await as('s01', `select public.answer_live(${lq1}, '2') as res`);
+check('실시간: 답하기 → 맞음, 1/2', r.rows?.[0]?.res?.correct === true && r.rows[0].res.answered === 1 && r.rows[0].res.total === 2, r);
+r = await as('s01', `select public.answer_live(${lq1}, '1')`);
+check('실시간: 같은 문제 두 번 거부', !!r.error && r.error.includes('이미'), r);
+r = await as('s01', `select public.answer_live(${lq2}, '오사카') as res`);
+check('실시간: 틀림, 2/2', r.rows?.[0]?.res?.correct === false && r.rows[0].res.answered === 2, r);
+r = await as('s01', `insert into public.live_answers (quiz_id, question_id, user_id, answer, correct) values (${liveId}, ${lq2}, '${ids.s02}', 'x', true)`);
+check('실시간: 답 직접 기록 거부', !!r.error, r);
+r = await as('s02', `select * from public.live_answers`);
+check('s02: 남의 답 0건', !r.error && r.rows.length === 0, r);
+r = await as('redsionkim', `select user_id, correct from public.live_answers where quiz_id=${liveId}`);
+check('관리자: 모든 답 보기 (레이스용)', r.rows?.length === 2, r);
+await db.exec(`update public.quizzes set live_started_at = now() - interval '100 seconds' where id=${liveId}`);
+r = await as('s02', `select public.answer_live(${lq1}, '2')`);
+check('실시간: 시간 끝나면 답하기 거부', !!r.error && r.error.includes('시간'), r);
+r = await as('s02', `select public.live_state(${liveId}) as st`);
+check('상태: 시간 지나면 끝', r.rows?.[0]?.st?.status === 'ended', r);
+r = await as('redsionkim', `select public.live_control(${liveId}, 'reset')`);
+r = await db.query(`select count(*)::int as n from public.live_answers where quiz_id=${liveId}`);
+check('관리자: 다시 하기 → 답 모두 지움, 대기', r.rows[0].n === 0, r.rows);
+r = await as('s01', `select question from public.quiz_questions where quiz_id=${liveId}`);
+check('다시 하기 후 문제 다시 숨김', !r.error && r.rows.length === 0, r);
+
 // ---- 실명 (관리자만) ----
 r = await as('redsionkim', `insert into public.student_names (user_id, real_name) values ('${ids.s02}', '김민준')`);
 check('관리자: 실명 입력', !r.error, r);

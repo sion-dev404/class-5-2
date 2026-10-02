@@ -231,6 +231,12 @@ create table if not exists public.quiz_keys (
 -- 제한 시간 (초, 비우면 무제한)
 alter table public.quizzes add column if not exists time_limit_sec integer check (time_limit_sec is null or time_limit_sec between 10 and 3600);
 
+-- 퀴즈 종류: self = 혼자 풀기(시간 날 때), live = 실시간(선생님이 시작하면 모두 함께)
+alter table public.quizzes add column if not exists mode text not null default 'self' check (mode in ('self', 'live'));
+-- 실시간 퀴즈 상태: waiting = 대기, running = 진행 중, ended = 끝 / 시작 시각(서버 시각)
+alter table public.quizzes add column if not exists live_status text not null default 'waiting' check (live_status in ('waiting', 'running', 'ended'));
+alter table public.quizzes add column if not exists live_started_at timestamptz;
+
 -- 퀴즈 시작 시각 (서버 시각으로 기록 → 걸린 시간을 공정하게 잼). 시작해야 문제가 보임
 create table if not exists public.quiz_starts (
   quiz_id    bigint not null references public.quizzes (id) on delete cascade,
@@ -252,6 +258,19 @@ create table if not exists public.quiz_attempts (
 
 -- 걸린 시간 (밀리초, 시작 → 제출)
 alter table public.quiz_attempts add column if not exists elapsed_ms integer;
+
+-- 실시간 퀴즈 답 (문제 하나 풀 때마다 한 줄 → 레이스에서 한 칸 이동). 기록은 answer_live 함수만
+create table if not exists public.live_answers (
+  quiz_id     bigint not null references public.quizzes (id) on delete cascade,
+  question_id bigint not null references public.quiz_questions (id) on delete cascade,
+  user_id     uuid not null references public.profiles (id) on delete cascade,
+  answer      text not null,
+  correct     boolean not null,
+  answered_at timestamptz not null default now(),
+  primary key (question_id, user_id)                         -- 한 문제에 한 번만
+);
+
+create index if not exists live_answers_quiz_id_idx on public.live_answers (quiz_id, answered_at);
 
 
 -- ---------------------------------------------------------------------
@@ -401,6 +420,10 @@ grant insert (topic_id) on public.posts to authenticated;
 revoke all on public.topics, public.quizzes, public.quiz_questions, public.quiz_keys from anon, authenticated;
 grant select, insert, update, delete on public.topics, public.quizzes, public.quiz_questions, public.quiz_keys to authenticated;
 
+-- live_answers : 읽기와 (관리자) 지우기만. 기록은 answer_live 함수만
+revoke all on public.live_answers from anon, authenticated;
+grant select, delete on public.live_answers to authenticated;
+
 -- quiz_starts : 읽기와 (관리자) 지우기만. 기록은 start_quiz 함수만
 revoke all on public.quiz_starts from anon, authenticated;
 grant select, delete on public.quiz_starts to authenticated;
@@ -455,6 +478,7 @@ alter table public.quiz_questions enable row level security;
 alter table public.quiz_keys enable row level security;
 alter table public.quiz_attempts enable row level security;
 alter table public.quiz_starts enable row level security;
+alter table public.live_answers enable row level security;
 alter table public.post_likes enable row level security;
 alter table public.jobs enable row level security;
 alter table public.job_assignments enable row level security;
@@ -597,7 +621,7 @@ create policy "quizzes: 관리자만 쓰고 고치고 지우기" on public.quizz
   for all to authenticated
   using ((select public.is_admin())) with check ((select public.is_admin()));
 
--- 문제는 "시작"을 누른 학생과 관리자만 읽기 (미리 보고 시간 벌기 방지)
+-- 문제는 관리자, "시작"을 누른 학생(혼자 풀기), 선생님이 시작한 실시간 퀴즈에서만 읽기 (미리 보기 방지)
 drop policy if exists "quiz_questions: 로그인하면 읽기" on public.quiz_questions;
 drop policy if exists "quiz_questions: 시작한 사람과 관리자만 읽기" on public.quiz_questions;
 create policy "quiz_questions: 시작한 사람과 관리자만 읽기" on public.quiz_questions
@@ -605,7 +629,18 @@ create policy "quiz_questions: 시작한 사람과 관리자만 읽기" on publi
   using (
     (select public.is_admin())
     or exists (select 1 from public.quiz_starts s where s.quiz_id = quiz_questions.quiz_id and s.user_id = (select auth.uid()))
+    or exists (select 1 from public.quizzes q where q.id = quiz_questions.quiz_id and q.mode = 'live' and q.live_status <> 'waiting')
   );
+
+-- ---- live_answers : 내 답과 관리자만 읽기, 관리자만 지우기(다시 하기) ----
+drop policy if exists "live_answers: 내 것 또는 관리자만 읽기" on public.live_answers;
+create policy "live_answers: 내 것 또는 관리자만 읽기" on public.live_answers
+  for select to authenticated
+  using (user_id = (select auth.uid()) or (select public.is_admin()));
+drop policy if exists "live_answers: 관리자만 지우기" on public.live_answers;
+create policy "live_answers: 관리자만 지우기" on public.live_answers
+  for delete to authenticated
+  using ((select public.is_admin()));
 
 -- ---- quiz_starts : 내 것과 관리자만 읽기, 관리자만 지우기(다시 풀게 하기) ----
 drop policy if exists "quiz_starts: 내 것 또는 관리자만 읽기" on public.quiz_starts;
@@ -800,7 +835,7 @@ begin
   if v_uid is null then
     raise exception '로그인이 필요해요.';
   end if;
-  select time_limit_sec into v_limit from public.quizzes where id = p_quiz_id and is_open;
+  select time_limit_sec into v_limit from public.quizzes where id = p_quiz_id and is_open and mode = 'self';
   if not found then
     raise exception '닫혔거나 없는 퀴즈예요.';
   end if;
@@ -837,7 +872,7 @@ begin
   if v_uid is null then
     raise exception '로그인이 필요해요.';
   end if;
-  if not exists (select 1 from public.quizzes where id = p_quiz_id and is_open) then
+  if not exists (select 1 from public.quizzes where id = p_quiz_id and is_open and mode = 'self') then
     raise exception '닫혔거나 없는 퀴즈예요.';
   end if;
   if exists (select 1 from public.quiz_attempts where quiz_id = p_quiz_id and user_id = v_uid) then
@@ -934,6 +969,129 @@ $$;
 
 revoke execute on function public.start_quiz(bigint), public.submit_quiz(bigint, jsonb), public.quiz_review(bigint), public.quiz_participation(bigint), public.quiz_speed_ranking(bigint) from public, anon;
 grant execute on function public.start_quiz(bigint), public.submit_quiz(bigint, jsonb), public.quiz_review(bigint), public.quiz_participation(bigint), public.quiz_speed_ranking(bigint) to authenticated;
+
+
+-- =====================================================================
+-- 10-2. 실시간 퀴즈 함수
+--   live_control : 선생님이 시작 / 끝내기 / 다시 하기 (시작 시각은 서버 시각)
+--   live_state   : 지금 상태와 서버 시각 (학생·레이스 화면이 남은 시간을 맞추는 데 씀)
+--   answer_live  : 학생이 문제 하나 답하기 → 바로 채점 (정답은 알려 주지 않고 맞았는지만)
+-- =====================================================================
+create or replace function public.live_control(p_quiz_id bigint, p_action text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '선생님만 할 수 있어요.';
+  end if;
+  if not exists (select 1 from public.quizzes where id = p_quiz_id and mode = 'live') then
+    raise exception '실시간 퀴즈가 아니에요.';
+  end if;
+  if p_action = 'start' then
+    update public.quizzes set live_status = 'running', live_started_at = now() where id = p_quiz_id;
+  elsif p_action = 'end' then
+    update public.quizzes set live_status = 'ended' where id = p_quiz_id;
+  elsif p_action = 'reset' then
+    delete from public.live_answers where quiz_id = p_quiz_id;
+    update public.quizzes set live_status = 'waiting', live_started_at = null where id = p_quiz_id;
+  else
+    raise exception '알 수 없는 동작이에요.';
+  end if;
+end;
+$$;
+
+create or replace function public.live_state(p_quiz_id bigint)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select jsonb_build_object(
+    'status', case
+      when q.live_status = 'running' and q.time_limit_sec is not null
+           and now() > q.live_started_at + make_interval(secs => q.time_limit_sec) then 'ended'
+      else q.live_status end,
+    'started_at', q.live_started_at,
+    'server_now', now(),
+    'time_limit_sec', q.time_limit_sec,
+    'total', (select count(*) from public.quiz_questions qq where qq.quiz_id = q.id)
+  )
+  from public.quizzes q
+  where q.id = p_quiz_id and q.mode = 'live' and (select auth.uid()) is not null;
+$$;
+
+create or replace function public.answer_live(p_question_id bigint, p_answer text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_quiz public.quizzes%rowtype;
+  v_key text;
+  v_given text := left(coalesce(p_answer, ''), 200);
+  v_ok boolean;
+  v_answered int;
+  v_total int;
+begin
+  if v_uid is null then
+    raise exception '로그인이 필요해요.';
+  end if;
+  select q.* into v_quiz
+  from public.quizzes q join public.quiz_questions qq on qq.quiz_id = q.id
+  where qq.id = p_question_id;
+  if not found or v_quiz.mode <> 'live' then
+    raise exception '실시간 퀴즈 문제가 아니에요.';
+  end if;
+  if v_quiz.live_status <> 'running' then
+    raise exception '지금은 풀 수 없어요.';
+  end if;
+  -- 제한 시간 + 5초 여유
+  if v_quiz.time_limit_sec is not null and now() > v_quiz.live_started_at + make_interval(secs => v_quiz.time_limit_sec + 5) then
+    raise exception '시간이 끝났어요.';
+  end if;
+
+  select answer into v_key from public.quiz_keys where question_id = p_question_id;
+  v_ok := public.quiz_normalize(v_given) <> '' and exists (
+    select 1 from unnest(string_to_array(v_key, '|')) as a(value)
+    where public.quiz_normalize(a.value) = public.quiz_normalize(v_given)
+  );
+
+  insert into public.live_answers (quiz_id, question_id, user_id, answer, correct)
+  values (v_quiz.id, p_question_id, v_uid, v_given, coalesce(v_ok, false))
+  on conflict (question_id, user_id) do nothing;
+  if not found then
+    raise exception '이미 답한 문제예요.';
+  end if;
+
+  select count(*) into v_answered from public.live_answers where quiz_id = v_quiz.id and user_id = v_uid;
+  select count(*) into v_total from public.quiz_questions where quiz_id = v_quiz.id;
+  return jsonb_build_object('correct', coalesce(v_ok, false), 'answered', v_answered, 'total', v_total);
+end;
+$$;
+
+revoke execute on function public.live_control(bigint, text), public.live_state(bigint), public.answer_live(bigint, text) from public, anon;
+grant execute on function public.live_control(bigint, text), public.live_state(bigint), public.answer_live(bigint, text) to authenticated;
+
+-- 실시간 알림(Supabase Realtime): 퀴즈 상태와 답이 바뀌면 화면에 바로 알림
+-- (Realtime이 꺼져 있어도 화면은 2~3초마다 새로 확인하므로 동작함)
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'live_answers') then
+      alter publication supabase_realtime add table public.live_answers;
+    end if;
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'quizzes') then
+      alter publication supabase_realtime add table public.quizzes;
+    end if;
+  end if;
+end;
+$$;
 
 
 -- =====================================================================

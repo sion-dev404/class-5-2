@@ -426,6 +426,14 @@ create policy "lessons_write" on lessons for all    to authenticated
 42-3. 시간이 다 되면 자동 제출. 서버는 제한 시간 + 30초가 지난 제출은 거절한다 (그때는 선생님이 "다시 풀게 하기").
 42-4. **⚡ 빨리 푼 순위**: 만점자만 걸린 시간 순으로 모두에게 보인다 (점수는 공개하지 않기 위해 만점자만). 선생님 결과표는 점수 높은 순 → 빠른 순, 걸린 시간 표시.
 
+**실시간 퀴즈 (🚀 레이스)**
+42-5. 퀴즈를 만들 때 종류를 고른다: **혼자 풀기**(지금까지의 퀴즈, 시간 날 때 각자) / **실시간**(선생님이 시작하면 다 함께).
+42-6. 실시간: 선생님이 "▶ 시작!"을 누른 **서버 시각**부터 제한 시간을 잰다. 그전에는 학생에게 문제가 보이지 않는다 (DB 규칙). 학생 화면은 대기 → 시작되면 자동으로 문제가 나온다.
+42-7. 학생은 **한 문제씩** 풀고, 답하면 바로 ⭕/❌만 보여 준다 (정답은 안 알려 줌). 한 문제에 한 번만 답할 수 있다. 다 풀면 "결승선 도착".
+42-8. **레이스 화면**(선생님, 새 창, 프로젝터용): 우주 배경, 학생마다 🚀 우주선(별명/아이디, 실명은 안 띄움). 답할 때마다 한 칸 이동, 다 풀면 결승선에서 반짝. 옆 순위표 1~24등.
+42-9. 순위 = **맞힌 수 → 답한 수 → 먼저 끝낸 순**. "맞힌 수 보이기"는 기본 꺼짐 (켜면 ✔개수 표시). 24명이 한 화면(1366×768 이상)에 다 들어간다.
+42-10. 바뀌면 바로 보이도록 Supabase Realtime을 쓰고, 혹시 안 되면 2초마다 다시 확인한다. 선생님은 끝내기 / 처음부터 다시(답 모두 지움)를 할 수 있다.
+
 **참가 현황 (보드·퀴즈 공통)**
 43. 명단은 학생 계정 전체 (role = student, 우리 반 24명). 계정을 만들거나 지우면 자동 반영. "참여 n / 23"과 진행 막대, 학생별 ✅/⬜ 표시.
 44. 퀴즈 점수는 선생님과 본인만 본다. 다른 학생에게는 누가 냈는지만 보인다. 선생님에게는 실명과 점수, 평균도 보인다.
@@ -501,7 +509,7 @@ create policy "lessons_write" on lessons for all    to authenticated
 - [ ] **10. 급식 테이블 추가**: SQL Editor에서 `supabase/schema.sql` 전체를 **다시** Run (여러 번 실행해도 안전, 기존 글은 그대로) → Table Editor에 `meals`가 생기고 RLS enabled
 - [ ] **11. 확인**: 관리자로 **식단** 메뉴에서 오늘 메뉴 입력 → 홈에도 보임 / 학생 계정에는 입력 칸이 없음
 
-- [ ] **11-6. 순위·자리 뽑기·퀴즈 시간 추가**: 같은 `schema.sql` 다시 Run → `seat_rules`, `seat_draws`, `quiz_starts`, 함수 `points_ranking`·`start_quiz`·`quiz_speed_ranking`
+- [ ] **11-6. 순위·자리 뽑기·퀴즈 시간 추가**: 같은 `schema.sql` 다시 Run → `seat_rules`, `seat_draws`, `quiz_starts`, `live_answers`, 함수 `points_ranking`·`start_quiz`·`quiz_speed_ranking`·`live_control`·`live_state`·`answer_live`
 - [ ] **11-5. 공감·1인1역·캘린더·점수 추가**: 같은 `schema.sql` 다시 Run → `post_likes`, `jobs`, `job_assignments`, `job_checks`, `events`, `points`
 - [ ] **11-4. 보드·퀴즈 추가**: 같은 `schema.sql` 다시 Run → Table Editor에 `topics`, `quizzes`, `quiz_questions`, `quiz_keys`, `quiz_attempts`
 - [ ] **11-3. 댓글 표 추가**: 같은 `schema.sql` 다시 Run → Table Editor에 `comments`

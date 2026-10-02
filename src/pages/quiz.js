@@ -3,6 +3,7 @@ import { isAdmin } from '../auth.js';
 import { realNames, withRealName } from '../realnames.js';
 import { fetchRoster, participationPanel } from '../roster.js';
 import { displayName, el, errorBox, formatDateTime, loading, message, withBusy } from '../ui.js';
+import { renderLiveAdmin, renderLiveStudent, renderRace } from './live.js';
 
 export const title = '퀴즈';
 
@@ -10,7 +11,8 @@ const MAX_QUESTIONS = 20;
 
 // #/quiz        → 퀴즈 목록
 // #/quiz/new    → 퀴즈 만들기 (관리자)
-// #/quiz/3      → 퀴즈 풀기 / 내 결과 / (관리자) 정답·결과
+// #/quiz/3      → 퀴즈 풀기 / 내 결과 / (관리자) 정답·결과  (실시간 퀴즈면 실시간 화면)
+// #/quiz/3/race → 실시간 퀴즈 레이스 화면 (관리자, 우주)
 export function render(view, ctx) {
   const [first] = ctx.params;
   if (!first) return renderList(view, ctx);
@@ -19,7 +21,21 @@ export function render(view, ctx) {
     view.append(message('없는 퀴즈예요.'));
     return;
   }
+  if (ctx.params[1] === 'race') return renderRaceRoute(view, ctx, Number(first));
   return renderQuiz(view, ctx, Number(first));
+}
+
+async function renderRaceRoute(view, ctx, id) {
+  if (!isAdmin(ctx.user)) {
+    view.append(message('선생님만 볼 수 있는 화면이에요.', 'error'));
+    return;
+  }
+  const { data: quiz, error } = await supabase.from('quizzes').select('id, title, mode').eq('id', id).maybeSingle();
+  if (error || !quiz || quiz.mode !== 'live') {
+    view.append(error ? errorBox(error) : message('실시간 퀴즈가 아니에요.', 'error'));
+    return;
+  }
+  return renderRace(view, ctx, quiz);
 }
 
 // ---------- 목록 ----------
@@ -40,7 +56,7 @@ async function renderList(view, ctx) {
 
   // 관리자는 모든 답안, 학생은 자기 답안만 읽힘 (RLS)
   const [{ data: quizzes, error }, { data: attempts, error: attemptsError }, { data: roster }] = await Promise.all([
-    supabase.from('quizzes').select('id, title, description, is_open, time_limit_sec, created_at').order('created_at', { ascending: false }),
+    supabase.from('quizzes').select('id, title, description, is_open, time_limit_sec, mode, live_status, created_at').order('created_at', { ascending: false }),
     supabase.from('quiz_attempts').select('quiz_id, user_id, score, total'),
     fetchRoster(),
   ]);
@@ -57,7 +73,9 @@ async function renderList(view, ctx) {
   const item = (quiz) => {
     const mine = attempts.find((a) => a.quiz_id === quiz.id && a.user_id === ctx.user.id);
     let badge;
-    if (admin) {
+    if (quiz.mode === 'live') {
+      badge = el('span', { class: `badge live-${quiz.live_status}` }, quiz.live_status === 'running' ? '🚀 실시간 진행 중' : quiz.live_status === 'ended' ? '🚀 실시간 끝' : '🚀 실시간 대기');
+    } else if (admin) {
       const n = attempts.filter((a) => a.quiz_id === quiz.id && studentIds.has(a.user_id)).length;
       badge = el('span', { class: 'badge later' }, `참여 ${n} / ${studentIds.size}`);
     } else if (mine) {
@@ -142,6 +160,12 @@ function renderBuilder(view, ctx) {
   }
   const titleInput = el('input', { id: 'quiz-title', maxlength: '50', required: true, placeholder: '예: 3단원 확인 퀴즈' });
   const descInput = el('textarea', { id: 'quiz-desc', maxlength: '500', rows: '2', placeholder: '설명 (선택)' });
+  const modeSelect = el(
+    'select',
+    { id: 'quiz-mode' },
+    el('option', { value: 'self' }, '혼자 풀기 (시간 날 때 각자)'),
+    el('option', { value: 'live' }, '🚀 실시간 (선생님이 시작하면 다 함께, 레이스 화면)'),
+  );
   const limitSelect = el(
     'select',
     { id: 'quiz-limit' },
@@ -171,7 +195,7 @@ function renderBuilder(view, ctx) {
   const form = el(
     'form',
     {},
-    el('div', { class: 'card' }, el('label', { for: 'quiz-title' }, '퀴즈 제목'), titleInput, el('label', { for: 'quiz-desc' }, '설명'), descInput, el('label', { for: 'quiz-limit' }, '제한 시간'), limitSelect),
+    el('div', { class: 'card' }, el('label', { for: 'quiz-title' }, '퀴즈 제목'), titleInput, el('label', { for: 'quiz-desc' }, '설명'), descInput, el('label', { for: 'quiz-mode' }, '퀴즈 종류'), modeSelect, el('label', { for: 'quiz-limit' }, '제한 시간'), limitSelect),
     questions,
     el('div', { class: 'actions' }, el('button', { type: 'button', class: 'secondary', onclick: addQuestion }, '+ 문제 추가')),
     status,
@@ -192,7 +216,7 @@ function renderBuilder(view, ctx) {
       status.replaceChildren(message('만드는 중…'));
       const { data: quizRows, error } = await supabase
         .from('quizzes')
-        .insert({ title: titleInput.value.trim(), description: descInput.value.trim() || null, time_limit_sec: Number(limitSelect.value) || null })
+        .insert({ title: titleInput.value.trim(), description: descInput.value.trim() || null, time_limit_sec: Number(limitSelect.value) || null, mode: modeSelect.value })
         .select('id');
       if (error || !quizRows?.length) return status.replaceChildren(error ? errorBox(error) : message('만들 권한이 없어요.', 'error'));
       const quizId = quizRows[0].id;
@@ -294,7 +318,7 @@ async function renderQuiz(view, ctx, id) {
   view.append(loading());
 
   const [{ data: quiz, error }, { data: mine }, { data: started }, { data: roster }, names] = await Promise.all([
-    supabase.from('quizzes').select('id, title, description, is_open, time_limit_sec, created_at').eq('id', id).maybeSingle(),
+    supabase.from('quizzes').select('id, title, description, is_open, time_limit_sec, mode, live_status, created_at').eq('id', id).maybeSingle(),
     supabase.from('quiz_attempts').select('answers, score, total, elapsed_ms, created_at').eq('quiz_id', id).eq('user_id', ctx.user.id).maybeSingle(),
     supabase.from('quiz_starts').select('started_at').eq('quiz_id', id).eq('user_id', ctx.user.id).maybeSingle(),
     fetchRoster(),
@@ -318,6 +342,19 @@ async function renderQuiz(view, ctx, id) {
     el('div', { class: 'row-meta' }, `⏱ ${formatLimit(quiz.time_limit_sec)}`),
   );
   const parts = [el('a', { href: '#/quiz' }, '← 퀴즈 목록'), header];
+
+  if (quiz.mode === 'live') {
+    header.append(el('div', { class: 'row-meta' }, '🚀 실시간 퀴즈 · 선생님이 시작하면 모두 함께 풀어요'));
+    view.replaceChildren(...parts);
+    if (!admin) return renderLiveStudent(view, ctx, quiz);
+    const [{ data: questions, error: qError }, { data: keyRows }] = await Promise.all([
+      supabase.from('quiz_questions').select('id, position, question, choices').eq('quiz_id', id).order('position').order('id'),
+      supabase.from('quiz_keys').select('question_id, answer'),
+    ]);
+    if (qError) return view.append(errorBox(qError));
+    const keys = new Map((keyRows ?? []).map((row) => [row.question_id, row.answer]));
+    return renderLiveAdmin(view, ctx, quiz, questions, keys);
+  }
 
   if (admin) {
     // 관리자는 시작하지 않아도 문제를 읽을 수 있음 (RLS)
