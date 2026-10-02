@@ -180,6 +180,75 @@ await as('s01', `delete from public.posts where id=${cPost}`);
 r = await db.query(`select count(*)::int as n from public.comments where post_id=${cPost}`);
 check('글 삭제 시 댓글도 삭제', r.rows[0].n === 0, r.rows);
 
+// ---- 보드 (주제) ----
+r = await as('s01', `insert into public.topics (title) values ('학생 주제')`);
+check('학생: 주제 만들기 거부', !!r.error, r);
+r = await as('redsionkim', `insert into public.topics (title, description) values ('내가 좋아하는 책', '한 권 소개하기') returning id`);
+check('관리자: 주제 만들기', !r.error, r);
+const topicId = r.rows[0].id;
+r = await as('s01', `insert into public.posts (title, content, topic_id) values ('어린 왕자', '좋아요', ${topicId}) returning id, topic_id`);
+check('학생: 열린 주제에 글쓰기', !r.error && Number(r.rows[0].topic_id) === Number(topicId), r);
+const topicPost = r.rows[0].id;
+r = await as('s01', `update public.posts set topic_id = null where id=${topicPost}`);
+check('학생: 글의 주제 바꾸기 거부', !!r.error, r);
+r = await as('s01', `update public.topics set is_open=false where id=${topicId}`);
+check('학생: 주제 마감 0건', !r.error && r.affected === 0, r);
+r = await as('redsionkim', `update public.topics set is_open=false where id=${topicId}`);
+check('관리자: 주제 마감', !r.error && r.affected === 1, r);
+r = await as('s02', `insert into public.posts (title, content, topic_id) values ('늦음', 'x', ${topicId})`);
+check('학생: 마감된 주제에 글쓰기 거부', !!r.error, r);
+r = await as('redsionkim', `delete from public.topics where id=${topicId}`);
+check('글이 있는 주제는 지울 수 없음 (기록 보존)', !!r.error, r);
+r = await as('s02', `select title from public.posts where topic_id=${topicId}`);
+check('마감된 주제의 글도 계속 보임', r.rows?.length === 1, r);
+
+// ---- 퀴즈 ----
+r = await as('s01', `insert into public.quizzes (title) values ('몰래')`);
+check('학생: 퀴즈 만들기 거부', !!r.error, r);
+r = await as('redsionkim', `insert into public.quizzes (title) values ('수도 퀴즈') returning id`);
+const quizId = r.rows[0].id;
+r = await as('redsionkim', `insert into public.quiz_questions (quiz_id, position, question, choices) values
+  (${quizId}, 1, '우리나라 수도는?', array['부산','서울','대구']),
+  (${quizId}, 2, '일본의 수도는?', null),
+  (${quizId}, 3, '1+1은?', array['1','2']) returning id`);
+const [q1, q2, q3] = r.rows.map((row) => row.id);
+r = await as('redsionkim', `insert into public.quiz_keys (question_id, answer) values (${q1}, '2'), (${q2}, '도쿄|동경'), (${q3}, '2')`);
+check('관리자: 문제·정답 만들기', !r.error, r);
+
+r = await as('s01', `select * from public.quiz_keys`);
+check('학생: 정답 읽기 0건', !r.error && r.rows.length === 0, r);
+r = await as('s01', `select question, choices from public.quiz_questions where quiz_id=${quizId}`);
+check('학생: 문제 읽기', r.rows?.length === 3, r);
+r = await as('s01', `select * from public.quiz_review(${quizId})`);
+check('학생: 제출 전 정답 보기 0건', !r.error && r.rows.length === 0, r);
+r = await as('s01', `insert into public.quiz_attempts (quiz_id, user_id, answers, score, total) values (${quizId}, '${ids.s01}', '{}', 3, 3)`);
+check('학생: 점수 직접 기록 거부', !!r.error, r);
+
+r = await as('s01', `select public.submit_quiz(${quizId}, '{"${q1}":"2","${q2}":" 동 경 ","${q3}":"1"}'::jsonb) as res`);
+check('학생: 제출·채점 (2/3, 띄어쓰기·여러 정답 허용)', !r.error && r.rows[0].res.score === 2 && r.rows[0].res.total === 3, r);
+r = await as('s01', `select public.submit_quiz(${quizId}, '{}'::jsonb)`);
+check('학생: 두 번 제출 거부', !!r.error && r.error.includes('이미'), r);
+r = await as('s01', `select * from public.quiz_review(${quizId})`);
+check('학생: 제출 후 정답 보기', r.rows?.length === 3, r);
+r = await as('s02', `select score from public.quiz_attempts`);
+check('s02: 남의 점수 읽기 0건', !r.error && r.rows.length === 0, r);
+r = await as('s02', `select * from public.quiz_participation(${quizId})`);
+check('s02: 참가 현황 (누가 냈는지만)', r.rows?.length === 1 && r.rows[0].user_id === ids.s01 && !('score' in r.rows[0]), r);
+r = await as('anon', `select * from public.quiz_participation(${quizId})`);
+check('비로그인: 참가 현황 거부', !!r.error || r.rows.length === 0, r);
+r = await as('redsionkim', `select score from public.quiz_attempts where quiz_id=${quizId}`);
+check('관리자: 모든 점수 보기', r.rows?.length === 1 && r.rows[0].score === 2, r);
+r = await as('redsionkim', `update public.quizzes set is_open=false where id=${quizId}`);
+r = await as('s02', `select public.submit_quiz(${quizId}, '{}'::jsonb)`);
+check('닫힌 퀴즈 제출 거부', !!r.error && r.error.includes('닫혔'), r);
+r = await as('s01', `delete from public.quiz_attempts where quiz_id=${quizId}`);
+check('학생: 내 답안 지우기 0건 (다시 풀기 불가)', !r.error && r.affected === 0, r);
+r = await as('redsionkim', `delete from public.quiz_attempts where quiz_id=${quizId} and user_id='${ids.s01}'`);
+check('관리자: 답안 지워서 다시 풀게 하기', !r.error && r.affected === 1, r);
+r = await as('redsionkim', `delete from public.quizzes where id=${quizId}`);
+r = await db.query(`select count(*)::int as n from public.quiz_keys`);
+check('퀴즈 삭제 시 문제·정답도 삭제', r.rows[0].n === 0, r.rows);
+
 // ---- 실명 (관리자만) ----
 r = await as('redsionkim', `insert into public.student_names (user_id, real_name) values ('${ids.s02}', '김민준')`);
 check('관리자: 실명 입력', !r.error, r);

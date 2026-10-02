@@ -182,6 +182,65 @@ create index if not exists comments_post_id_idx on public.comments (post_id, cre
 
 
 -- ---------------------------------------------------------------------
+-- 6-6. topics : 보드의 주제 (선생님이 만듦, 지우지 않고 "마감"만 → 지난 기록이 남음)
+--      보드 글은 게시판 글(posts)과 같은 표를 쓰고, topic_id 로 주제를 구분합니다.
+--      (topic_id 가 비어 있으면 일반 게시판 글)
+-- ---------------------------------------------------------------------
+create table if not exists public.topics (
+  id          bigint generated always as identity primary key,
+  title       text not null check (char_length(title) between 1 and 50),               -- 주제
+  description text check (description is null or char_length(description) <= 1000),   -- 설명 (선택)
+  is_open     boolean not null default true,                                           -- 글쓰기 가능 여부 (마감하면 false)
+  created_at  timestamptz not null default now()
+);
+
+alter table public.posts add column if not exists topic_id bigint references public.topics (id) on delete restrict;
+create index if not exists posts_topic_id_idx on public.posts (topic_id, created_at desc);
+
+
+-- ---------------------------------------------------------------------
+-- 6-7. 퀴즈
+--      quizzes        : 퀴즈 (제목·설명·열림/닫힘)
+--      quiz_questions : 문제와 보기 (학생도 읽음)
+--      quiz_keys      : 정답 (선생님만! 학생은 읽을 수 없음)
+--      quiz_attempts  : 학생 답안과 점수 (본인과 선생님만 읽음, 채점 함수만 기록)
+-- ---------------------------------------------------------------------
+create table if not exists public.quizzes (
+  id          bigint generated always as identity primary key,
+  title       text not null check (char_length(title) between 1 and 50),
+  description text check (description is null or char_length(description) <= 500),
+  is_open     boolean not null default true,                                    -- 닫으면 더 이상 참여 못 함
+  created_at  timestamptz not null default now()
+);
+
+create table if not exists public.quiz_questions (
+  id       bigint generated always as identity primary key,
+  quiz_id  bigint not null references public.quizzes (id) on delete cascade,
+  position smallint not null default 1,                                          -- 문제 순서
+  question text not null check (char_length(question) between 1 and 500),       -- 문제
+  choices  text[] check (choices is null or array_length(choices, 1) between 2 and 5) -- 객관식 보기 (주관식이면 비움)
+);
+
+create index if not exists quiz_questions_quiz_id_idx on public.quiz_questions (quiz_id, position);
+
+create table if not exists public.quiz_keys (
+  question_id bigint primary key references public.quiz_questions (id) on delete cascade,
+  answer      text not null check (char_length(answer) between 1 and 200)  -- 객관식: 보기 번호(1~5) / 주관식: 정답 ( | 로 여러 개 가능)
+);
+
+create table if not exists public.quiz_attempts (
+  id         bigint generated always as identity primary key,
+  quiz_id    bigint not null references public.quizzes (id) on delete cascade,
+  user_id    uuid not null references public.profiles (id) on delete cascade,
+  answers    jsonb not null,                                   -- { "문제번호": "답" }
+  score      smallint not null,                                -- 맞힌 개수
+  total      smallint not null,                                -- 문제 수
+  created_at timestamptz not null default now(),
+  unique (quiz_id, user_id)                                    -- 한 사람은 한 번만
+);
+
+
+-- ---------------------------------------------------------------------
 -- 6-4. student_names : 학생 실명 (관리용)
 --      관리자(선생님)만 읽고 쓸 수 있습니다. 학생은 친구 실명을 볼 수 없습니다.
 --      (profiles와 따로 둔 이유: profiles는 반 전체가 읽을 수 있기 때문)
@@ -236,6 +295,17 @@ revoke all on public.post_files from anon, authenticated;
 grant select, delete on public.post_files to authenticated;
 grant insert (post_id, path, name, size, mime) on public.post_files to authenticated;
 
+-- posts : 보드 글이면 주제(topic_id)도 함께 쓸 수 있음 (나중에 주제를 바꿀 수는 없음)
+grant insert (topic_id) on public.posts to authenticated;
+
+-- topics, quizzes, quiz_questions, quiz_keys : 권한은 열어 두되, 실제로는 아래 RLS가 관리자만 쓰게 함
+revoke all on public.topics, public.quizzes, public.quiz_questions, public.quiz_keys from anon, authenticated;
+grant select, insert, update, delete on public.topics, public.quizzes, public.quiz_questions, public.quiz_keys to authenticated;
+
+-- quiz_attempts : 읽기와 (관리자) 지우기만. 기록은 채점 함수 submit_quiz 만 할 수 있음
+revoke all on public.quiz_attempts from anon, authenticated;
+grant select, delete on public.quiz_attempts to authenticated;
+
 -- comments : 읽기, 쓰기(어느 글에·내용만), 지우기. 고치기는 없음
 revoke all on public.comments from anon, authenticated;
 grant select, delete on public.comments to authenticated;
@@ -258,6 +328,11 @@ alter table public.meals    enable row level security;
 alter table public.post_files enable row level security;
 alter table public.student_names enable row level security;
 alter table public.comments enable row level security;
+alter table public.topics enable row level security;
+alter table public.quizzes enable row level security;
+alter table public.quiz_questions enable row level security;
+alter table public.quiz_keys enable row level security;
+alter table public.quiz_attempts enable row level security;
 
 -- ---- profiles ----
 drop policy if exists "profiles: 로그인하면 읽기" on public.profiles;
@@ -277,10 +352,18 @@ create policy "posts: 로그인하면 읽기" on public.posts
   for select to authenticated
   using (true);
 
+-- 보드 글은 열려 있는 주제에만 (마감된 주제는 관리자만)
 drop policy if exists "posts: 내 이름으로만 쓰기" on public.posts;
 create policy "posts: 내 이름으로만 쓰기" on public.posts
   for insert to authenticated
-  with check (author_id = (select auth.uid()));
+  with check (
+    author_id = (select auth.uid())
+    and (
+      topic_id is null
+      or exists (select 1 from public.topics t where t.id = topic_id and t.is_open)
+      or (select public.is_admin())
+    )
+  );
 
 drop policy if exists "posts: 내 글만 고치기" on public.posts;
 create policy "posts: 내 글만 고치기" on public.posts
@@ -367,6 +450,47 @@ create policy "comments: 내 댓글 또는 관리자만 지우기" on public.com
   for delete to authenticated
   using (author_id = (select auth.uid()) or (select public.is_admin()));
 
+-- ---- topics, quizzes, quiz_questions : 로그인하면 읽기, 관리자만 쓰기 ----
+drop policy if exists "topics: 로그인하면 읽기" on public.topics;
+create policy "topics: 로그인하면 읽기" on public.topics
+  for select to authenticated using (true);
+drop policy if exists "topics: 관리자만 쓰고 고치고 지우기" on public.topics;
+create policy "topics: 관리자만 쓰고 고치고 지우기" on public.topics
+  for all to authenticated
+  using ((select public.is_admin())) with check ((select public.is_admin()));
+
+drop policy if exists "quizzes: 로그인하면 읽기" on public.quizzes;
+create policy "quizzes: 로그인하면 읽기" on public.quizzes
+  for select to authenticated using (true);
+drop policy if exists "quizzes: 관리자만 쓰고 고치고 지우기" on public.quizzes;
+create policy "quizzes: 관리자만 쓰고 고치고 지우기" on public.quizzes
+  for all to authenticated
+  using ((select public.is_admin())) with check ((select public.is_admin()));
+
+drop policy if exists "quiz_questions: 로그인하면 읽기" on public.quiz_questions;
+create policy "quiz_questions: 로그인하면 읽기" on public.quiz_questions
+  for select to authenticated using (true);
+drop policy if exists "quiz_questions: 관리자만 쓰고 고치고 지우기" on public.quiz_questions;
+create policy "quiz_questions: 관리자만 쓰고 고치고 지우기" on public.quiz_questions
+  for all to authenticated
+  using ((select public.is_admin())) with check ((select public.is_admin()));
+
+-- ---- quiz_keys : 정답은 관리자만 (학생은 읽기도 안 됨) ----
+drop policy if exists "quiz_keys: 관리자만" on public.quiz_keys;
+create policy "quiz_keys: 관리자만" on public.quiz_keys
+  for all to authenticated
+  using ((select public.is_admin())) with check ((select public.is_admin()));
+
+-- ---- quiz_attempts : 내 답안·점수는 나만, 전체는 관리자만. 지우기(다시 풀게 하기)는 관리자만 ----
+drop policy if exists "quiz_attempts: 내 것 또는 관리자만 읽기" on public.quiz_attempts;
+create policy "quiz_attempts: 내 것 또는 관리자만 읽기" on public.quiz_attempts
+  for select to authenticated
+  using (user_id = (select auth.uid()) or (select public.is_admin()));
+drop policy if exists "quiz_attempts: 관리자만 지우기" on public.quiz_attempts;
+create policy "quiz_attempts: 관리자만 지우기" on public.quiz_attempts
+  for delete to authenticated
+  using ((select public.is_admin()));
+
 -- ---- student_names : 관리자만 (학생은 읽기도 안 됨) ----
 drop policy if exists "student_names: 관리자만" on public.student_names;
 create policy "student_names: 관리자만" on public.student_names
@@ -428,6 +552,112 @@ create policy "attachments: 올린 사람 또는 관리자만 지우기" on stor
     bucket_id = 'attachments'
     and ((storage.foldername(name))[1] = (select auth.uid())::text or (select public.is_admin()))
   );
+
+
+-- =====================================================================
+-- 10. 퀴즈 함수 (정답을 학생에게 보여 주지 않고 서버에서 채점)
+-- =====================================================================
+
+-- 답 비교용: 띄어쓰기 없애고 소문자로 ("서울 특별시" = "서울특별시")
+create or replace function public.quiz_normalize(value text)
+returns text
+language sql
+immutable
+set search_path = ''
+as $$
+  select lower(regexp_replace(coalesce(value, ''), '\s', '', 'g'));
+$$;
+
+-- 제출하고 채점하기: 한 사람 한 번, 열린 퀴즈만. 결과(점수·정답)를 돌려줌
+create or replace function public.submit_quiz(p_quiz_id bigint, p_answers jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_score int := 0;
+  v_total int := 0;
+  v_given text;
+  v_ok boolean;
+  v_results jsonb := '[]'::jsonb;
+  q record;
+begin
+  if v_uid is null then
+    raise exception '로그인이 필요해요.';
+  end if;
+  if not exists (select 1 from public.quizzes where id = p_quiz_id and is_open) then
+    raise exception '닫혔거나 없는 퀴즈예요.';
+  end if;
+  if exists (select 1 from public.quiz_attempts where quiz_id = p_quiz_id and user_id = v_uid) then
+    raise exception '이미 참여한 퀴즈예요.';
+  end if;
+
+  for q in
+    select qq.id, k.answer
+    from public.quiz_questions qq
+    join public.quiz_keys k on k.question_id = qq.id
+    where qq.quiz_id = p_quiz_id
+    order by qq.position, qq.id
+  loop
+    v_total := v_total + 1;
+    v_given := left(coalesce(p_answers ->> q.id::text, ''), 200);
+    -- 정답이 "서울|서울특별시"처럼 여러 개면 그중 하나만 맞으면 정답
+    v_ok := public.quiz_normalize(v_given) <> '' and exists (
+      select 1 from unnest(string_to_array(q.answer, '|')) as a(value)
+      where public.quiz_normalize(a.value) = public.quiz_normalize(v_given)
+    );
+    if v_ok then
+      v_score := v_score + 1;
+    end if;
+    v_results := v_results || jsonb_build_object('question_id', q.id, 'given', v_given, 'answer', q.answer, 'correct', v_ok);
+  end loop;
+
+  if v_total = 0 then
+    raise exception '문제가 없는 퀴즈예요.';
+  end if;
+
+  insert into public.quiz_attempts (quiz_id, user_id, answers, score, total)
+  values (p_quiz_id, v_uid, p_answers, v_score, v_total);
+
+  return jsonb_build_object('score', v_score, 'total', v_total, 'results', v_results);
+end;
+$$;
+
+-- 정답 보기: 이미 제출한 사람과 관리자만
+create or replace function public.quiz_review(p_quiz_id bigint)
+returns table (question_id bigint, answer text)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select k.question_id, k.answer
+  from public.quiz_keys k
+  join public.quiz_questions qq on qq.id = k.question_id
+  where qq.quiz_id = p_quiz_id
+    and (
+      exists (select 1 from public.quiz_attempts a where a.quiz_id = p_quiz_id and a.user_id = (select auth.uid()))
+      or (select public.is_admin())
+    );
+$$;
+
+-- 참가 현황: 누가 제출했는지만 (점수는 안 알려 줌). 로그인한 사람 누구나
+create or replace function public.quiz_participation(p_quiz_id bigint)
+returns table (user_id uuid, submitted_at timestamptz)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select a.user_id, a.created_at
+  from public.quiz_attempts a
+  where a.quiz_id = p_quiz_id and (select auth.uid()) is not null;
+$$;
+
+revoke execute on function public.submit_quiz(bigint, jsonb), public.quiz_review(bigint), public.quiz_participation(bigint) from public, anon;
+grant execute on function public.submit_quiz(bigint, jsonb), public.quiz_review(bigint), public.quiz_participation(bigint) to authenticated;
 
 
 -- =====================================================================

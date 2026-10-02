@@ -51,16 +51,16 @@ async function renderList(view, ctx) {
   const body = el('div', {}, loading());
   view.append(body);
 
-  const fetchPage = (columns) =>
-    supabase
-      .from('posts')
-      .select(columns, { count: 'exact' })
-      .order('created_at', { ascending: false })
-      .range(from, from + PAGE_SIZE - 1);
+  // 게시판에는 보드(주제) 글을 빼고 보여 줌
+  const fetchPage = (columns, onlyBoard = true) => {
+    let query = supabase.from('posts').select(columns, { count: 'exact' });
+    if (onlyBoard) query = query.is('topic_id', null);
+    return query.order('created_at', { ascending: false }).range(from, from + PAGE_SIZE - 1);
+  };
   let { data, error, count } = await fetchPage('id, title, created_at, author_id, author:profiles(username, nickname), post_files(count), comments(count)');
-  // 첨부·댓글 표가 아직 없으면 📎·댓글 수 없이 목록만
-  if (error?.code === 'PGRST200' || error?.code === 'PGRST205') {
-    ({ data, error, count } = await fetchPage('id, title, created_at, author_id, author:profiles(username, nickname)'));
+  // SQL(schema.sql)을 아직 다시 실행하지 않아 표·칸이 없으면, 📎·댓글 수 없이 기본 목록만
+  if (['PGRST200', 'PGRST205', '42703'].includes(error?.code)) {
+    ({ data, error, count } = await fetchPage('id, title, created_at, author_id, author:profiles(username, nickname)', false));
   }
 
   if (error) {
@@ -157,7 +157,7 @@ async function renderPost(view, ctx, id) {
   const [{ data: post, error }, { data: files, error: filesError }, names, comments] = await Promise.all([
     supabase
       .from('posts')
-      .select('id, title, content, created_at, updated_at, author_id, author:profiles(username, nickname)')
+      .select('*, author:profiles(username, nickname)')
       .eq('id', id)
       .maybeSingle(),
     listFiles(id),
@@ -173,6 +173,14 @@ async function renderPost(view, ctx, id) {
     view.replaceChildren(message('없는 글이에요. 지워졌을 수도 있어요.'), el('a', { href: '#/board' }, '목록으로'));
     return;
   }
+
+  // 보드(주제) 글이면 그 주제로 돌아가기
+  let topic = null;
+  if (post.topic_id) {
+    ({ data: topic } = await supabase.from('topics').select('id, title').eq('id', post.topic_id).maybeSingle());
+  }
+  const backHref = topic ? `#/topics/${topic.id}` : '#/board';
+  const backText = topic ? '주제로 돌아가기' : '목록으로';
 
   const mine = post.author_id === ctx.user.id;
   const canDelete = mine || isAdmin(ctx.user);
@@ -197,7 +205,7 @@ async function renderPost(view, ctx, id) {
       } else if (data.length === 0) {
         status.replaceChildren(message('삭제할 권한이 없어요.', 'error'));
       } else {
-        location.hash = '#/board';
+        location.hash = backHref;
       }
     });
   });
@@ -208,6 +216,7 @@ async function renderPost(view, ctx, id) {
     el(
       'article',
       { class: 'card' },
+      topic ? el('a', { class: 'topic-tag', href: backHref }, `📌 ${topic.title}`) : null,
       el('h1', { class: 'row-title' }, post.title),
       el(
         'div',
@@ -220,7 +229,7 @@ async function renderPost(view, ctx, id) {
       el(
         'div',
         { class: 'actions' },
-        el('a', { href: '#/board' }, '목록으로'),
+        el('a', { href: backHref }, backText),
         el('span', { class: 'spacer' }),
         mine ? el('a', { class: 'button', href: `#/board/${id}/edit` }, '수정') : null,
         canDelete ? deleteButton : null,
@@ -399,6 +408,20 @@ function filePicker(existing) {
 
 async function renderForm(view, ctx, id) {
   let post = null;
+  let topic = null;
+  const topicParam = ctx.query.get('topic');
+  if (id === null && /^\d+$/.test(topicParam ?? '')) {
+    const { data, error } = await supabase.from('topics').select('id, title, is_open').eq('id', Number(topicParam)).maybeSingle();
+    if (error || !data) {
+      view.append(error ? errorBox(error) : message('없는 주제예요.'), el('a', { href: '#/topics' }, '보드 목록으로'));
+      return;
+    }
+    if (!data.is_open && !isAdmin(ctx.user)) {
+      view.append(message('마감된 주제라 글을 쓸 수 없어요.', 'error'), el('a', { href: `#/topics/${data.id}` }, '주제로 돌아가기'));
+      return;
+    }
+    topic = data;
+  }
   let existingFiles = [];
   if (id !== null) {
     view.append(loading());
@@ -441,7 +464,7 @@ async function renderForm(view, ctx, id) {
       'div',
       { class: 'actions' },
       submit,
-      el('a', { href: post ? `#/board/${id}` : '#/board', class: 'muted' }, '취소'),
+      el('a', { href: post ? `#/board/${id}` : topic ? `#/topics/${topic.id}` : '#/board', class: 'muted' }, '취소'),
     ),
   );
 
@@ -461,7 +484,7 @@ async function renderForm(view, ctx, id) {
       status.replaceChildren(message('저장하는 중…'));
       const query = post
         ? supabase.from('posts').update(values).eq('id', id).select('id')
-        : supabase.from('posts').insert(values).select('id');
+        : supabase.from('posts').insert(topic ? { ...values, topic_id: topic.id } : values).select('id');
       const { data, error } = await query;
       if (error) {
         status.replaceChildren(errorBox(error));
@@ -490,6 +513,8 @@ async function renderForm(view, ctx, id) {
     });
   });
 
-  view.append(el('h1', {}, post ? '글 고치기' : '글쓰기'), form);
+  view.append(el('h1', {}, post ? '글 고치기' : '글쓰기'));
+  if (topic) view.append(el('p', { class: 'topic-tag' }, `📌 주제: ${topic.title}`));
+  view.append(form);
   titleInput.focus();
 }
