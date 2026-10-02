@@ -18,7 +18,7 @@ export async function render(view) {
   async function load() {
     const { data, error } = await supabase
       .from('post_files')
-      .select('id, path, name, post_id, post:posts(title)')
+      .select('id, path, name, post_id, post:posts!post_id(title)')
       .like('mime', 'image/%')
       .order('id', { ascending: false })
       .range(from, from + PAGE_SIZE - 1);

@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:rls": "node scripts/test-rls.mjs",
-    "check:secrets": "node scripts/check-secrets.mjs"
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "check:queries": "node scripts/check-queries.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",

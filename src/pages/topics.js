@@ -115,7 +115,7 @@ async function renderTopic(view, ctx, id) {
     supabase.from('topics').select('id, title, description, is_open, created_at').eq('id', id).maybeSingle(),
     supabase
       .from('posts')
-      .select('id, title, content, created_at, author_id, author:profiles(username, nickname), post_files(count), comments(count), post_likes(count)')
+      .select('id, title, content, created_at, author_id, author:profiles!author_id(username, nickname), post_files(count), comments(count), post_likes(count)')
       .eq('topic_id', id)
       .order('created_at', { ascending: false }),
     fetchRoster(),

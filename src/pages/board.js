@@ -57,10 +57,10 @@ async function renderList(view, ctx) {
     if (onlyBoard) query = query.is('topic_id', null);
     return query.order('created_at', { ascending: false }).range(from, from + PAGE_SIZE - 1);
   };
-  let { data, error, count } = await fetchPage('id, title, created_at, author_id, author:profiles(username, nickname), post_files(count), comments(count), post_likes(count)');
+  let { data, error, count } = await fetchPage('id, title, created_at, author_id, author:profiles!author_id(username, nickname), post_files(count), comments(count), post_likes(count)');
   // SQL(schema.sql)을 아직 다시 실행하지 않아 표·칸이 없으면, 📎·댓글 수 없이 기본 목록만
   if (['PGRST200', 'PGRST205', '42703'].includes(error?.code)) {
-    ({ data, error, count } = await fetchPage('id, title, created_at, author_id, author:profiles(username, nickname)', false));
+    ({ data, error, count } = await fetchPage('id, title, created_at, author_id, author:profiles!author_id(username, nickname)', false));
   }
 
   if (error) {
@@ -159,7 +159,7 @@ async function renderPost(view, ctx, id) {
   const [{ data: post, error }, { data: files, error: filesError }, names, comments, likes] = await Promise.all([
     supabase
       .from('posts')
-      .select('*, author:profiles(username, nickname)')
+      .select('*, author:profiles!author_id(username, nickname)')
       .eq('id', id)
       .maybeSingle(),
     listFiles(id),
@@ -246,7 +246,7 @@ async function renderPost(view, ctx, id) {
 // ---------- 공감 ----------
 
 async function fetchLikes(postId) {
-  const result = await supabase.from('post_likes').select('user_id, user:profiles(username, nickname)').eq('post_id', postId).order('created_at');
+  const result = await supabase.from('post_likes').select('user_id, user:profiles!user_id(username, nickname)').eq('post_id', postId).order('created_at');
   // 공감 표가 아직 없으면(SQL 실행 전) 공감 칸을 숨김
   if (result.error?.code === 'PGRST205' || result.error?.code === 'PGRST200') return { missing: true };
   return result;
@@ -288,7 +288,7 @@ const COMMENT_MAX = 500;
 async function fetchComments(postId) {
   const result = await supabase
     .from('comments')
-    .select('id, content, created_at, author_id, author:profiles(username, nickname)')
+    .select('id, content, created_at, author_id, author:profiles!author_id(username, nickname)')
     .eq('post_id', postId)
     .order('created_at');
   // 댓글 표가 아직 없으면(SQL 실행 전) 댓글 칸을 숨김
