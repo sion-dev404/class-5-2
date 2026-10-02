@@ -1121,3 +1121,66 @@ button.seat.picked {
   color: #fff;
   border-color: var(--primary);
 }
+
+/* ---------- 퀴즈 시간 ---------- */
+
+.quiz-timer {
+  position: sticky;
+  top: 8px;
+  z-index: 5;
+  margin-bottom: 12px;
+  padding: 10px 16px;
+  font-size: 1.2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  background: var(--surface);
+  border: 2px solid var(--primary);
+  border-radius: var(--radius);
+}
+
+.quiz-timer.urgent {
+  color: var(--error-text);
+  border-color: var(--error-text);
+  background: var(--error-bg);
+}
+
+#quiz-limit {
+  width: auto;
+}
+
+.speed-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.speed-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.speed-list li.me {
+  background: #eef3fe;
+  font-weight: 600;
+}
+
+.speed-rank {
+  width: 2em;
+  text-align: center;
+}
+
+.speed-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.speed-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--primary);
+  font-weight: 600;
+}

@@ -421,6 +421,10 @@ create policy "lessons_write" on lessons for all    to authenticated
 40. 정답은 `quiz_keys` 표에 따로 두어 학생은 읽을 수 없다. 채점은 서버 함수 `submit_quiz`가 하고, 학생은 점수를 직접 기록할 수 없다.
 41. 한 사람 한 번만 제출. 제출하면 바로 내 점수와 틀린 문제의 정답이 보인다. 선생님은 "다시 풀게 하기"로 답안을 지울 수 있다.
 42. 퀴즈는 닫기/다시 열기/삭제 가능. 만든 뒤 문제 고치기는 없음 (삭제 후 다시 만들기).
+42-1. **제한 시간**: 만들 때 없음/30초/1·2·3·5·10·15·20·30분 중 선택. 학생이 "시작하기"를 누른 **서버 시각**부터 잰다 (기기 시계와 무관).
+42-2. 문제는 "시작"한 학생과 선생님만 읽을 수 있다 (DB 규칙) → 미리 보고 시간 벌기 방지. 시작 후 나갔다 들어와도 남은 시간은 이어진다.
+42-3. 시간이 다 되면 자동 제출. 서버는 제한 시간 + 30초가 지난 제출은 거절한다 (그때는 선생님이 "다시 풀게 하기").
+42-4. **⚡ 빨리 푼 순위**: 만점자만 걸린 시간 순으로 모두에게 보인다 (점수는 공개하지 않기 위해 만점자만). 선생님 결과표는 점수 높은 순 → 빠른 순, 걸린 시간 표시.
 
 **참가 현황 (보드·퀴즈 공통)**
 43. 명단은 학생 계정 전체 (role = student, 우리 반 24명). 계정을 만들거나 지우면 자동 반영. "참여 n / 23"과 진행 막대, 학생별 ✅/⬜ 표시.
@@ -497,7 +501,7 @@ create policy "lessons_write" on lessons for all    to authenticated
 - [ ] **10. 급식 테이블 추가**: SQL Editor에서 `supabase/schema.sql` 전체를 **다시** Run (여러 번 실행해도 안전, 기존 글은 그대로) → Table Editor에 `meals`가 생기고 RLS enabled
 - [ ] **11. 확인**: 관리자로 **식단** 메뉴에서 오늘 메뉴 입력 → 홈에도 보임 / 학생 계정에는 입력 칸이 없음
 
-- [ ] **11-6. 순위·자리 뽑기 추가**: 같은 `schema.sql` 다시 Run → `seat_rules`, `seat_draws`, 함수 `points_ranking`
+- [ ] **11-6. 순위·자리 뽑기·퀴즈 시간 추가**: 같은 `schema.sql` 다시 Run → `seat_rules`, `seat_draws`, `quiz_starts`, 함수 `points_ranking`·`start_quiz`·`quiz_speed_ranking`
 - [ ] **11-5. 공감·1인1역·캘린더·점수 추가**: 같은 `schema.sql` 다시 Run → `post_likes`, `jobs`, `job_assignments`, `job_checks`, `events`, `points`
 - [ ] **11-4. 보드·퀴즈 추가**: 같은 `schema.sql` 다시 Run → Table Editor에 `topics`, `quizzes`, `quiz_questions`, `quiz_keys`, `quiz_attempts`
 - [ ] **11-3. 댓글 표 추가**: 같은 `schema.sql` 다시 Run → Table Editor에 `comments`

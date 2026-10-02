@@ -228,6 +228,17 @@ create table if not exists public.quiz_keys (
   answer      text not null check (char_length(answer) between 1 and 200)  -- 객관식: 보기 번호(1~5) / 주관식: 정답 ( | 로 여러 개 가능)
 );
 
+-- 제한 시간 (초, 비우면 무제한)
+alter table public.quizzes add column if not exists time_limit_sec integer check (time_limit_sec is null or time_limit_sec between 10 and 3600);
+
+-- 퀴즈 시작 시각 (서버 시각으로 기록 → 걸린 시간을 공정하게 잼). 시작해야 문제가 보임
+create table if not exists public.quiz_starts (
+  quiz_id    bigint not null references public.quizzes (id) on delete cascade,
+  user_id    uuid not null references public.profiles (id) on delete cascade,
+  started_at timestamptz not null default now(),
+  primary key (quiz_id, user_id)
+);
+
 create table if not exists public.quiz_attempts (
   id         bigint generated always as identity primary key,
   quiz_id    bigint not null references public.quizzes (id) on delete cascade,
@@ -238,6 +249,9 @@ create table if not exists public.quiz_attempts (
   created_at timestamptz not null default now(),
   unique (quiz_id, user_id)                                    -- 한 사람은 한 번만
 );
+
+-- 걸린 시간 (밀리초, 시작 → 제출)
+alter table public.quiz_attempts add column if not exists elapsed_ms integer;
 
 
 -- ---------------------------------------------------------------------
@@ -387,6 +401,10 @@ grant insert (topic_id) on public.posts to authenticated;
 revoke all on public.topics, public.quizzes, public.quiz_questions, public.quiz_keys from anon, authenticated;
 grant select, insert, update, delete on public.topics, public.quizzes, public.quiz_questions, public.quiz_keys to authenticated;
 
+-- quiz_starts : 읽기와 (관리자) 지우기만. 기록은 start_quiz 함수만
+revoke all on public.quiz_starts from anon, authenticated;
+grant select, delete on public.quiz_starts to authenticated;
+
 -- quiz_attempts : 읽기와 (관리자) 지우기만. 기록은 채점 함수 submit_quiz 만 할 수 있음
 revoke all on public.quiz_attempts from anon, authenticated;
 grant select, delete on public.quiz_attempts to authenticated;
@@ -436,6 +454,7 @@ alter table public.quizzes enable row level security;
 alter table public.quiz_questions enable row level security;
 alter table public.quiz_keys enable row level security;
 alter table public.quiz_attempts enable row level security;
+alter table public.quiz_starts enable row level security;
 alter table public.post_likes enable row level security;
 alter table public.jobs enable row level security;
 alter table public.job_assignments enable row level security;
@@ -578,9 +597,25 @@ create policy "quizzes: 관리자만 쓰고 고치고 지우기" on public.quizz
   for all to authenticated
   using ((select public.is_admin())) with check ((select public.is_admin()));
 
+-- 문제는 "시작"을 누른 학생과 관리자만 읽기 (미리 보고 시간 벌기 방지)
 drop policy if exists "quiz_questions: 로그인하면 읽기" on public.quiz_questions;
-create policy "quiz_questions: 로그인하면 읽기" on public.quiz_questions
-  for select to authenticated using (true);
+drop policy if exists "quiz_questions: 시작한 사람과 관리자만 읽기" on public.quiz_questions;
+create policy "quiz_questions: 시작한 사람과 관리자만 읽기" on public.quiz_questions
+  for select to authenticated
+  using (
+    (select public.is_admin())
+    or exists (select 1 from public.quiz_starts s where s.quiz_id = quiz_questions.quiz_id and s.user_id = (select auth.uid()))
+  );
+
+-- ---- quiz_starts : 내 것과 관리자만 읽기, 관리자만 지우기(다시 풀게 하기) ----
+drop policy if exists "quiz_starts: 내 것 또는 관리자만 읽기" on public.quiz_starts;
+create policy "quiz_starts: 내 것 또는 관리자만 읽기" on public.quiz_starts
+  for select to authenticated
+  using (user_id = (select auth.uid()) or (select public.is_admin()));
+drop policy if exists "quiz_starts: 관리자만 지우기" on public.quiz_starts;
+create policy "quiz_starts: 관리자만 지우기" on public.quiz_starts
+  for delete to authenticated
+  using ((select public.is_admin()));
 drop policy if exists "quiz_questions: 관리자만 쓰고 고치고 지우기" on public.quiz_questions;
 create policy "quiz_questions: 관리자만 쓰고 고치고 지우기" on public.quiz_questions
   for all to authenticated
@@ -750,7 +785,37 @@ as $$
   select lower(regexp_replace(coalesce(value, ''), '\s', '', 'g'));
 $$;
 
--- 제출하고 채점하기: 한 사람 한 번, 열린 퀴즈만. 결과(점수·정답)를 돌려줌
+-- 시작하기: 서버 시각으로 시작 기록 (이미 시작했으면 처음 시각 그대로). 제한 시간 계산용 정보를 돌려줌
+create or replace function public.start_quiz(p_quiz_id bigint)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_limit int;
+  v_started timestamptz;
+begin
+  if v_uid is null then
+    raise exception '로그인이 필요해요.';
+  end if;
+  select time_limit_sec into v_limit from public.quizzes where id = p_quiz_id and is_open;
+  if not found then
+    raise exception '닫혔거나 없는 퀴즈예요.';
+  end if;
+  if exists (select 1 from public.quiz_attempts where quiz_id = p_quiz_id and user_id = v_uid) then
+    raise exception '이미 참여한 퀴즈예요.';
+  end if;
+  insert into public.quiz_starts (quiz_id, user_id) values (p_quiz_id, v_uid)
+  on conflict (quiz_id, user_id) do nothing;
+  select started_at into v_started from public.quiz_starts where quiz_id = p_quiz_id and user_id = v_uid;
+  return jsonb_build_object('started_at', v_started, 'server_now', now(), 'time_limit_sec', v_limit);
+end;
+$$;
+
+-- 제출하고 채점하기: 한 사람 한 번, 열린 퀴즈만, 시작한 뒤에만.
+-- 제한 시간이 있으면 (제한 시간 + 30초 여유) 안에 내야 함. 결과(점수·정답·걸린 시간)를 돌려줌
 create or replace function public.submit_quiz(p_quiz_id bigint, p_answers jsonb)
 returns jsonb
 language plpgsql
@@ -764,6 +829,9 @@ declare
   v_given text;
   v_ok boolean;
   v_results jsonb := '[]'::jsonb;
+  v_started timestamptz;
+  v_limit int;
+  v_elapsed int;
   q record;
 begin
   if v_uid is null then
@@ -774,6 +842,15 @@ begin
   end if;
   if exists (select 1 from public.quiz_attempts where quiz_id = p_quiz_id and user_id = v_uid) then
     raise exception '이미 참여한 퀴즈예요.';
+  end if;
+  select started_at into v_started from public.quiz_starts where quiz_id = p_quiz_id and user_id = v_uid;
+  if v_started is null then
+    raise exception '먼저 시작을 눌러 주세요.';
+  end if;
+  select time_limit_sec into v_limit from public.quizzes where id = p_quiz_id;
+  v_elapsed := floor(extract(epoch from (now() - v_started)) * 1000)::int;
+  if v_limit is not null and v_elapsed > (v_limit + 30) * 1000 then
+    raise exception '제한 시간이 지났어요.';
   end if;
 
   for q in
@@ -800,10 +877,10 @@ begin
     raise exception '문제가 없는 퀴즈예요.';
   end if;
 
-  insert into public.quiz_attempts (quiz_id, user_id, answers, score, total)
-  values (p_quiz_id, v_uid, p_answers, v_score, v_total);
+  insert into public.quiz_attempts (quiz_id, user_id, answers, score, total, elapsed_ms)
+  values (p_quiz_id, v_uid, p_answers, v_score, v_total, least(v_elapsed, coalesce(v_limit * 1000, v_elapsed)));
 
-  return jsonb_build_object('score', v_score, 'total', v_total, 'results', v_results);
+  return jsonb_build_object('score', v_score, 'total', v_total, 'elapsed_ms', v_elapsed, 'results', v_results);
 end;
 $$;
 
@@ -838,8 +915,25 @@ as $$
   where a.quiz_id = p_quiz_id and (select auth.uid()) is not null;
 $$;
 
-revoke execute on function public.submit_quiz(bigint, jsonb), public.quiz_review(bigint), public.quiz_participation(bigint) from public, anon;
-grant execute on function public.submit_quiz(bigint, jsonb), public.quiz_review(bigint), public.quiz_participation(bigint) to authenticated;
+-- 빨리 푼 순위: 만점을 받은 사람만, 걸린 시간 순 (점수는 안 알려 줌). 로그인한 사람 누구나
+create or replace function public.quiz_speed_ranking(p_quiz_id bigint)
+returns table (user_id uuid, elapsed_ms integer)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select a.user_id, a.elapsed_ms
+  from public.quiz_attempts a
+  where a.quiz_id = p_quiz_id
+    and a.score = a.total
+    and a.elapsed_ms is not null
+    and (select auth.uid()) is not null
+  order by a.elapsed_ms;
+$$;
+
+revoke execute on function public.start_quiz(bigint), public.submit_quiz(bigint, jsonb), public.quiz_review(bigint), public.quiz_participation(bigint), public.quiz_speed_ranking(bigint) from public, anon;
+grant execute on function public.start_quiz(bigint), public.submit_quiz(bigint, jsonb), public.quiz_review(bigint), public.quiz_participation(bigint), public.quiz_speed_ranking(bigint) to authenticated;
 
 
 -- =====================================================================
