@@ -8,7 +8,7 @@
 ## 1. 전체 구조
 
 ```
-[브라우저]  ── Vite로 만든 정적 화면 (Netlify에 배포)
+[브라우저]  ── Vite로 만든 정적 화면 (GitHub Pages에 배포)
     │
     └─ 로그인 · 게시판 · 수업 · 숙제 · 식단 ──▶ [Supabase]
                                               ├ Auth (로그인)
@@ -18,10 +18,10 @@
 | 구성 | 선택 | 이유 |
 |---|---|---|
 | 화면 | Vite + 순수 JavaScript (프레임워크 없음) | 가볍고, 코드를 읽고 고치기 쉬움 |
-| 페이지 이동 | 해시 라우팅 (`#/board`, `#/lessons` …) | Netlify에서 새로고침해도 404가 안 남, 별도 설정 불필요 |
+| 페이지 이동 | 해시 라우팅 (`#/board`, `#/lessons` …) | GitHub Pages에서 새로고침해도 404가 안 남, 별도 설정 불필요 |
 | 로그인 · DB | Supabase 무료 플랜 | Auth + Postgres + RLS를 한 곳에서 |
 | 급식 | 관리자가 날짜별로 직접 입력 (`meals` 테이블) | 외부 API·인증키 없이 단순하게, 수업·숙제와 같은 방식 |
-| 배포 | Netlify (GitHub 연동) | `git push` 때만 배포 → "올려줘" 할 때만 push |
+| 배포 | GitHub Pages (GitHub Actions 자동 빌드) | `git push` 때만 배포 → "올려줘" 할 때만 push. 크레딧 없음 (처음엔 Netlify였다가 옮김) |
 
 ### 폴더 구조 (예정)
 ```
@@ -84,8 +84,8 @@ Supabase Auth는 **이메일 + 비밀번호**가 기본이다. 그래서 아이�
 
 | 값 | 공개 가능? | 어디에 두나 |
 |---|---|---|
-| Supabase Project URL | ✅ 공개 가능 | `.env.local`(로컬), Netlify 환경변수 |
-| Supabase **anon / publishable** 키 | ✅ 공개 가능 (RLS가 지켜 줌) | `.env.local`(로컬), Netlify 환경변수 |
+| Supabase Project URL | ✅ 공개 가능 | `.env.local`(로컬), GitHub 저장소 Actions **Variables** (코드에는 안 둠) |
+| Supabase **anon / publishable** 키 | ✅ 공개 가능 (RLS가 지켜 줌) | `.env.local`(로컬), GitHub 저장소 Actions **Variables** (코드에는 안 둠) |
 | Supabase **service_role / secret** 키 | ❌ 절대 비공개 | **어디에도 넣지 않는다.** 이 프로젝트는 쓸 일이 없음 |
 | DB 비밀번호 | ❌ 비공개 | 선생님 비밀번호 관리자에만 |
 | 계정 비밀번호 | ❌ 비공개 | 선생님만 앎. 코드·파일·SQL 어디에도 없음 |
@@ -463,7 +463,7 @@ create policy "lessons_write" on lessons for all    to authenticated
 56. "이 자리로 저장"하면 기록이 남고(최근 10개), 지난 기록을 불러올 수 있다. 학생은 자리 메뉴·기록을 볼 수 없다.
 
 **배포·기타**
-21. `netlify.toml`: Node 24, 빌드 `npm run build` → `dist`. 공개용 변수 2개는 Netlify 비밀값 검사에서 제외해서 배포가 괜히 멈추지 않게 했다 (배포 크레딧 절약).
+21. (옛 Netlify 설정 — 지금은 GitHub Pages로 옮김, 12장 참고)
 22. 검색 엔진에 나오지 않도록 `noindex`를 설정했다. 다른 사이트 안에 끼워 넣는 것(iframe)도 막았다.
 23. `npm run check:secrets`: GitHub에 올라갈 파일과 `dist`에서 `sb_secret_` 키나 service_role 키를 찾는다. push 전에 🤖가 실행한다.
 
@@ -471,7 +471,7 @@ create policy "lessons_write" on lessons for all    to authenticated
 
 ## 11. 🧑‍🏫 선생님 체크리스트 (순서대로)
 
-> 비밀번호와 키는 **Supabase·Netlify 화면에만** 입력합니다. 파일이나 채팅에는 쓰지 않습니다.
+> 비밀번호와 키는 **Supabase·GitHub 설정 화면에만** 입력합니다. 파일이나 채팅에는 쓰지 않습니다.
 
 ### A. Supabase 데이터베이스
 - [ ] **1. 테이블과 보안 규칙 만들기**: SQL Editor → New query → `supabase/schema.sql` 전체 붙여넣기 → Run → "Success" 확인
@@ -481,13 +481,13 @@ create policy "lessons_write" on lessons for all    to authenticated
   - `s01@class52.local`, `s02@class52.local` (테스트 학생)
 - [ ] **4. 관리자 지정**: SQL Editor에서 `supabase/make-admin.sql` Run → 결과 표에서 redsionkim, teacher0502만 `admin`
 
-### B. 내 컴퓨터에서 확인 (`npm run dev` → http://localhost:5173)
+### B. 내 컴퓨터에서 확인 (`npm run dev` → http://localhost:5173/class-5-2/)
 - [ ] **5. 로그인**: 로그인 안 한 상태로 `#/board`를 직접 입력하면 로그인 화면으로 간다 / 틀린 비밀번호는 "아이디 또는 비밀번호가 달라요" / `s01` 로그인 후 새로고침해도 유지
 - [ ] **6. 게시판**: `s01`로 글쓰기 (제목에 `<b>굵게</b>`를 넣어 보면 글자 그대로 보임) → 주소창의 글 번호(`#/board/1`의 `1`)를 적어 두기
 - [ ] **7. 🔒 보안 실험 (학생이 남의 글 지우기 시도)**: 로그아웃하고 `s02`로 로그인 → 그 글에 수정·삭제 버튼이 없는지 확인 → **F12 → Console** 탭에서 아래를 한 줄씩 붙여넣기
   (붙여넣기가 막히면 `allow pasting`이라고 입력하고 Enter. `1`은 6번에서 적은 글 번호로 바꾸기)
   ```js
-  const { supabase } = await import('/src/supabase.js');
+  const { supabase } = await import('/class-5-2/src/supabase.js');
 
   // 실험 1: 남의 글 삭제 → 기대 결과 data: [] (0건, 아무것도 안 지워짐)
   await supabase.from('posts').delete().eq('id', 1).select();
@@ -502,7 +502,7 @@ create policy "lessons_write" on lessons for all    to authenticated
   await supabase.from('lessons').insert({ lesson_date: '2026-10-01', subject: '실험', content: '학생이 쓰기' }).select();
   ```
   → 새로고침해서 글이 그대로 있으면 **성공**
-- [ ] **8. 로그아웃 상태 실험**: 로그아웃 → Console에서 `const { supabase } = await import('/src/supabase.js');` 다음 `await supabase.from('posts').select();` → 기대 결과 **error (permission denied)**
+- [ ] **8. 로그아웃 상태 실험**: 로그아웃 → Console에서 `const { supabase } = await import('/class-5-2/src/supabase.js');` 다음 `await supabase.from('posts').select();` → 기대 결과 **error (permission denied)**
 - [ ] **9. 관리자**: `redsionkim`으로 로그인 → `s01` 글에 삭제 버튼만 있고, 누르면 지워짐 / 오늘의 수업·숙제에 입력 칸이 보이고 추가·수정·삭제가 됨 / 숙제에 D-표시
 
 ### C. 급식
@@ -519,14 +519,32 @@ create policy "lessons_write" on lessons for all    to authenticated
 ### D. 배포
 - [ ] **12. GitHub 저장소**: https://github.com/new 에서 **Private**, 이름 `class-5-2`, README 등 체크 없이 만들기 → 저장소 주소를 🤖에게 알려 주기 (🤖가 remote 연결)
 - [ ] **13. "올려줘"** → 🤖가 비밀키 검사·빌드 후 `git push`
-- [ ] **14. Netlify 연결**: Add new project → Import an existing project → GitHub → `class-5-2`
-  - 빌드 설정은 `netlify.toml`에서 자동으로 채워짐 (`npm run build` / `dist`)
-  - **Deploy 누르기 전에** Environment variables에 `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` 두 개 입력 (값은 `.env.local`과 같게, 공개 키만)
-  - Deploy
-- [ ] **15. 배포 주소에서 확인**: 5번(로그인), 6번(글쓰기), 11번(식단)을 Netlify 주소에서 한 번 더
-  - 7번 콘솔 실험은 **내 컴퓨터(`npm run dev`)에서만** 됩니다. 배포 주소에서는 안 해도 됩니다.
+- [ ] **14. GitHub Pages 설정**: 아래 12장 순서대로 (저장소 공개, Pages 소스 = GitHub Actions, Variables 2개)
+- [ ] **15. 배포 주소에서 확인**: `https://sion1221koreas.github.io/class-5-2/` 에서 5번(로그인), 6번(글쓰기), 11번(식단)
 - [ ] **16. 나머지 학생 계정**: `s03@class52.local` … 3번과 같은 방법 (Auto Confirm 체크). 테스트로 쓴 글은 관리자로 지우기
 
 ### 알아 둘 것
 - 방학 등으로 7일 넘게 아무도 접속하지 않으면 Supabase가 멈춥니다 → 대시보드에서 **Restore**
 - 학생 비밀번호 변경: Authentication → Users → 학생 줄 `…` → 비밀번호 변경
+
+
+---
+
+## 12. 배포를 GitHub Pages로 옮기기 (Netlify 대신)
+
+- 배포 파일: `.github/workflows/deploy.yml` — `master`에 push하면 **비밀키 검사 → 빌드 → 빌드 결과 검사 → Pages 배포**가 자동으로 실행된다.
+- `vite.config.js`의 `base`가 `/class-5-2/` → 주소는 `https://sion1221koreas.github.io/class-5-2/`. 내 컴퓨터에서도 `http://localhost:5173/class-5-2/`.
+- Supabase 접속 정보(URL, publishable 키)는 **코드에서 뺐다.** 내 컴퓨터는 `.env.local`, 배포는 저장소 **Actions Variables**에서 넣는다. 둘 다 공개용 값이지만 코드에는 두지 않는다.
+- `npm run check:secrets`는 이제 올라갈 파일 + dist + **커밋 기록 전체**를 검사하고, 코드에 Supabase 주소·키를 직접 쓰면 실패한다. 배포 워크플로에서도 빌드 전·후에 자동으로 돈다.
+- `netlify.toml`은 Netlify가 빌드하지 않도록 `ignore = "exit 0"`만 남겼다 (크레딧 보호).
+- GitHub Pages에서는 `X-Frame-Options` 같은 응답 헤더를 정할 수 없다. 검색 차단은 `index.html`의 `noindex` 메타 태그로 유지된다.
+
+### 🧑‍🏫 선생님이 할 일 (순서대로)
+1. **Netlify 빌드 멈추기**: Netlify → 프로젝트 → Project configuration → Build & deploy → **Stop builds** (또는 프로젝트 삭제). `netlify.toml`이 막아 주지만 확실하게.
+2. **저장소 공개**: GitHub 저장소 → Settings → General → 맨 아래 Danger Zone → **Change visibility → Public**. (무료 계정은 공개 저장소에서만 Pages 사용 가능)
+3. **Pages 켜기**: Settings → **Pages** → Build and deployment → Source: **GitHub Actions**
+4. **접속 정보 넣기**: Settings → **Secrets and variables → Actions → Variables 탭 → New repository variable**
+   - Name `VITE_SUPABASE_URL` / Value: `.env.local`의 같은 값
+   - Name `VITE_SUPABASE_PUBLISHABLE_KEY` / Value: `.env.local`의 같은 값 (`sb_publishable_`로 시작해야 함. `sb_secret_`은 절대 안 됨)
+5. **"올려줘"** → push → 저장소 **Actions** 탭에서 "GitHub Pages 배포"가 초록색 ✔이 되면 끝 (2~3분)
+6. **Supabase 주소 허용**: 로그인 화면이 열리는지 확인. (이메일 확인 메일·리디렉트를 쓰지 않으므로 Supabase URL 설정은 바꿀 필요 없음)

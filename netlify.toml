@@ -1,19 +1,5 @@
-# Netlify 배포 설정 (비밀 정보 없음)
-
+# 배포는 GitHub Pages(.github/workflows/deploy.yml)로 옮겼습니다.
+# Netlify가 아직 이 저장소에 연결돼 있어도 빌드하지 않도록 막습니다. (크레딧 보호)
+# Netlify를 완전히 끊은 뒤에는 이 파일을 지워도 됩니다.
 [build]
-  command = "npm run build"
-  publish = "dist"
-
-[build.environment]
-  NODE_VERSION = "24"
-  # 아래 두 값은 원래 공개용이라 화면 코드에 들어가는 것이 정상입니다.
-  # Netlify의 "비밀값 검사"가 이것을 비밀로 오해해 배포를 멈추지 않도록 제외합니다.
-  SECRETS_SCAN_OMIT_KEYS = "VITE_SUPABASE_URL,VITE_SUPABASE_PUBLISHABLE_KEY"
-
-[[headers]]
-  for = "/*"
-  [headers.values]
-    X-Robots-Tag = "noindex, nofollow"
-    X-Frame-Options = "DENY"
-    X-Content-Type-Options = "nosniff"
-    Referrer-Policy = "no-referrer"
+  ignore = "exit 0"

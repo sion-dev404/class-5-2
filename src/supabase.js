@@ -1,11 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
-import { SUPABASE } from './config.js';
 
-// 공개해도 되는 값만 쓴다. 환경 변수(.env.local, Netlify)가 있으면 그것을, 없으면 config.js 기본값을 쓴다.
-const url = import.meta.env.VITE_SUPABASE_URL || SUPABASE.url;
-const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || SUPABASE.publishableKey;
+// 공개해도 되는 값만 읽는다. 값은 코드가 아니라 빌드할 때 환경 변수로 들어온다.
+//   · 내 컴퓨터: .env.local
+//   · GitHub Pages: 저장소 Actions Variables (배포 워크플로가 빌드할 때 넣어 줌)
+const url = import.meta.env.VITE_SUPABASE_URL;
+const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 export const configError =
-  !url || !publishableKey ? 'Supabase 접속 정보가 없어요. src/config.js 의 SUPABASE 값을 확인해 주세요.' : null;
+  !url || !publishableKey
+    ? 'Supabase 접속 정보가 없어요. 내 컴퓨터라면 .env.local 을, GitHub Pages라면 저장소의 Actions Variables(VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY)를 확인해 주세요.'
+    : null;
 
 export const supabase = configError ? null : createClient(url, publishableKey);

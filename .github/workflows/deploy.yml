@@ -1,0 +1,82 @@
+# GitHub Pages 자동 배포
+# master 에 push 하면: 비밀키 검사 → 빌드 → 빌드 결과 검사 → GitHub Pages 에 올림
+# Supabase 접속 정보는 코드가 아니라 저장소 설정의 Variables 에서 가져옴
+#   (Settings → Secrets and variables → Actions → Variables 탭)
+name: GitHub Pages 배포
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch: # Actions 탭에서 손으로 다시 실행할 수도 있음
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 배포가 겹치면 앞의 것이 끝난 뒤 다음 것을 실행
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 코드 받기 (커밋 기록 전체 — 기록까지 비밀키 검사)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Node 준비
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: 패키지 설치
+        run: npm ci
+
+      - name: 비밀키 검사 (코드·커밋 기록)
+        run: npm run check:secrets
+
+      - name: 접속 정보가 저장소 Variables 에 있는지 확인
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_PUBLISHABLE_KEY" ]; then
+            echo "::error::저장소 Settings → Secrets and variables → Actions → Variables 에 VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY 를 넣어 주세요."
+            exit 1
+          fi
+          case "$VITE_SUPABASE_PUBLISHABLE_KEY" in
+            sb_secret_*) echo "::error::VITE_SUPABASE_PUBLISHABLE_KEY 에 비밀키(sb_secret_)가 들어 있어요! publishable 키로 바꿔 주세요."; exit 1 ;;
+          esac
+
+      - name: 빌드
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+        run: npm run build
+
+      - name: 빌드 결과 비밀키 검사
+        run: npm run check:secrets
+
+      - name: Pages 설정
+        uses: actions/configure-pages@v5
+
+      - name: 빌드 결과 올리기
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: GitHub Pages 에 배포
+        id: deployment
+        uses: actions/deploy-pages@v4

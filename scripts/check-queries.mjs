@@ -2,9 +2,26 @@
 // 로그인 없이(공개 키로) 보내므로 데이터는 받지 않고, 정상이면 "권한 없음(42501)"이 돌아옵니다.
 // 표·칸 이름이 틀리거나 연결이 애매하면(PGRST200/201/205, 42703) 실패로 알려 줍니다.
 // 실행: npm run check:queries   (push 전에 실행)
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { SUPABASE } from '../src/config.js';
+
+// 접속 정보: 환경 변수 → 없으면 .env.local (코드에는 두지 않음)
+function envValue(name) {
+  if (process.env[name]) return process.env[name];
+  if (!existsSync('.env.local')) return '';
+  const line = readFileSync('.env.local', 'utf8')
+    .split(/\r?\n/)
+    .find((l) => l.startsWith(`${name}=`));
+  return line ? line.slice(name.length + 1).trim() : '';
+}
+const SUPABASE = {
+  url: envValue('VITE_SUPABASE_URL').replace(/\/$/, ''),
+  publishableKey: envValue('VITE_SUPABASE_PUBLISHABLE_KEY'),
+};
+if (!SUPABASE.url || !SUPABASE.publishableKey) {
+  console.error('VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY 가 없어요. (.env.local 또는 환경 변수)');
+  process.exit(1);
+}
 
 function walk(dir) {
   return readdirSync(dir).flatMap((name) => {
