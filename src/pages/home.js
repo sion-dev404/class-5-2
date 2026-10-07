@@ -85,5 +85,7 @@ async function loadHomework(box) {
 async function loadMeal(box) {
   const { data: meal, error } = await fetchMeal(today());
   if (error) return box.replaceChildren(errorBox(error));
-  box.replaceChildren(meal ? dishList(meal.menu) : message('오늘은 등록된 급식이 없어요.'));
+  if (!meal) return box.replaceChildren(message('오늘은 등록된 급식이 없어요.'));
+  // 메뉴 글이 있으면 글, 사진만 올렸으면 급식 화면으로 가는 안내
+  box.replaceChildren(meal.menu ? dishList(meal.menu) : el('a', { href: '#/meal' }, '📷 오늘 식단표 사진 보기 ›'));
 }

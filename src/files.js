@@ -154,3 +154,71 @@ export async function removeAllFiles(postId) {
   const { error: removeError } = await supabase.storage.from(BUCKET).remove(files.map((file) => file.path));
   if (removeError) throw removeError;
 }
+
+// ---------- 오늘의 수업·급식 자료 (선생님만 올림, content_files 표) ----------
+// kind: 'lesson' | 'meal'   보관 위치: admin/kind/번호/무작위이름.확장자
+
+const CONTENT_COLUMN = { lesson: 'lesson_id', meal: 'meal_id' };
+
+async function uploadContentFile(kind, refId, file) {
+  const problem = checkFile(file);
+  if (problem) throw new Error(problem);
+  let mime = TYPES[extensionOf(file.name)];
+  let blob = file;
+  let name = file.name;
+  if (isImage(mime)) ({ blob, mime, name } = await prepareImage(file, mime));
+  if (blob.size > MAX_BYTES) throw new Error(`${file.name}: 50MB보다 커서 올릴 수 없어요.`);
+
+  const path = `admin/${kind}/${refId}/${crypto.randomUUID()}.${extensionOf(name)}`;
+  const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: mime, upsert: false });
+  if (uploadError) throw new Error(`${file.name}: 올리지 못했어요. (${uploadError.message})`);
+  const { error } = await supabase.from('content_files').insert({ [CONTENT_COLUMN[kind]]: refId, path, name: name.slice(0, 200), size: blob.size, mime });
+  if (error) {
+    await supabase.storage.from(BUCKET).remove([path]);
+    throw new Error(`${file.name}: 기록하지 못했어요.`);
+  }
+}
+
+// 여러 자료 올리기 → 실패한 파일의 이유 목록
+export async function uploadContentFiles(kind, refId, files, onProgress) {
+  const failures = [];
+  for (const [index, file] of files.entries()) {
+    onProgress?.(`파일 올리는 중… (${index + 1}/${files.length})`);
+    try {
+      await uploadContentFile(kind, refId, file);
+    } catch (error) {
+      failures.push(error.message);
+    }
+  }
+  return failures;
+}
+
+// 여러 수업(또는 급식)의 자료 → Map(번호 → [파일...])
+export async function listContentFiles(kind, refIds) {
+  const column = CONTENT_COLUMN[kind];
+  const map = new Map(refIds.map((id) => [id, []]));
+  if (refIds.length === 0) return map;
+  const { data, error } = await supabase.from('content_files').select(`id, ${column}, path, name, size, mime`).in(column, refIds).order('id');
+  if (error) {
+    if (error.code === 'PGRST205') return map; // 표가 아직 없으면(SQL 실행 전) 자료 없음
+    throw error;
+  }
+  for (const file of data) map.get(file[column])?.push(file);
+  return map;
+}
+
+export async function removeContentFile(file) {
+  const { data, error } = await supabase.storage.from(BUCKET).remove([file.path]);
+  if (error) throw error;
+  if (data.length === 0) throw new Error('지울 권한이 없어요.');
+  const { error: rowError } = await supabase.from('content_files').delete().eq('id', file.id);
+  if (rowError) throw rowError;
+}
+
+// 수업·급식을 지우기 전에 그 자료 파일을 보관함에서 모두 지움 (기록은 함께 자동 삭제)
+export async function removeAllContentFiles(kind, refId) {
+  const files = (await listContentFiles(kind, [refId])).get(refId) ?? [];
+  if (files.length === 0) return;
+  const { error } = await supabase.storage.from(BUCKET).remove(files.map((file) => file.path));
+  if (error) throw error;
+}

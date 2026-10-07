@@ -72,6 +72,55 @@ grant execute on function public.is_admin() to authenticated;
 
 
 -- ---------------------------------------------------------------------
+-- 3-2. 사이트 열기/닫기 (계정 도용 같은 사고가 나면 학생에게는 사이트를 닫음)
+--      site_settings 는 한 줄뿐. closed = true 이면 학생은 DB의 어떤 자료도 읽고 쓸 수 없음
+--      (아래 9-2의 "닫힘 잠금" 규칙). 선생님(관리자)은 그대로 쓸 수 있음.
+-- ---------------------------------------------------------------------
+create table if not exists public.site_settings (
+  id         smallint primary key default 1 check (id = 1),                              -- 한 줄만
+  closed     boolean not null default true,                                             -- 닫힘 여부 (처음 만들 때 닫힌 상태)
+  notice     text not null default '도용 사건으로 사이트가 종료되었습니다.' check (char_length(notice) between 1 and 300),
+  updated_at timestamptz not null default now()
+);
+insert into public.site_settings (id) values (1) on conflict (id) do nothing;
+
+create or replace function public.site_open()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select coalesce((select not closed from public.site_settings where id = 1), true);
+$$;
+
+revoke execute on function public.site_open() from public;
+grant execute on function public.site_open() to anon, authenticated;
+
+-- 학생 로그인 모두 끊기 (선생님만). 끊긴 학생은 다시 로그인해야 함
+create or replace function public.sign_out_students()
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_count integer;
+begin
+  if not public.is_admin() then
+    raise exception '선생님만 할 수 있어요.';
+  end if;
+  delete from auth.sessions where user_id in (select id from public.profiles where role = 'student');
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$$;
+
+revoke execute on function public.sign_out_students() from public, anon;
+grant execute on function public.sign_out_students() to authenticated;
+
+
+-- ---------------------------------------------------------------------
 -- 4. posts : 게시판 글 (글자만, 사진 없음)
 -- ---------------------------------------------------------------------
 create table if not exists public.posts (
@@ -359,6 +408,34 @@ create table if not exists public.seat_draws (
 
 
 -- ---------------------------------------------------------------------
+-- 6-13. content_files : 오늘의 수업·급식에 붙인 사진/파일 (선생님만 올림)
+--       실제 파일은 보관함 "attachments" 의 admin/수업또는급식/번호/… 에 있음
+-- ---------------------------------------------------------------------
+create table if not exists public.content_files (
+  id         bigint generated always as identity primary key,
+  lesson_id  bigint references public.lessons (id) on delete cascade,   -- 수업 자료면 수업 번호
+  meal_id    bigint references public.meals (id) on delete cascade,     -- 급식 자료면 급식 번호
+  path       text not null unique,                                      -- 보관 위치
+  name       text not null check (char_length(name) between 1 and 200), -- 원래 파일 이름
+  size       integer not null check (size between 1 and 52428800),     -- 50MB까지
+  mime       text not null,
+  created_at timestamptz not null default now(),
+  check (num_nonnulls(lesson_id, meal_id) = 1)                          -- 수업이나 급식 중 하나에만 붙음
+);
+
+create index if not exists content_files_lesson_idx on public.content_files (lesson_id);
+create index if not exists content_files_meal_idx on public.content_files (meal_id);
+
+-- 사진만 올려도 되도록 수업 내용·급식 메뉴 글은 선택으로 바꿈
+alter table public.lessons alter column content drop not null;
+alter table public.lessons drop constraint if exists lessons_content_check;
+alter table public.lessons add constraint lessons_content_check check (content is null or char_length(content) between 1 and 2000);
+alter table public.meals alter column menu drop not null;
+alter table public.meals drop constraint if exists meals_menu_check;
+alter table public.meals add constraint meals_menu_check check (menu is null or char_length(menu) between 1 and 1000);
+
+
+-- ---------------------------------------------------------------------
 -- 6-4. student_names : 학생 실명 (관리용)
 --      관리자(선생님)만 읽고 쓸 수 있습니다. 학생은 친구 실명을 볼 수 없습니다.
 --      (profiles와 따로 둔 이유: profiles는 반 전체가 읽을 수 있기 때문)
@@ -445,6 +522,15 @@ grant select, insert, update, delete on public.jobs, public.job_assignments, pub
 revoke all on public.seat_rules, public.seat_draws from anon, authenticated;
 grant select, insert, update, delete on public.seat_rules, public.seat_draws to authenticated;
 
+-- content_files : 읽기는 로그인한 사람, 쓰기는 아래 RLS가 관리자만
+revoke all on public.content_files from anon, authenticated;
+grant select, insert, delete on public.content_files to authenticated;
+
+-- site_settings : 닫힘 여부와 안내 문구는 로그인 전에도 읽음 (닫힘 화면을 띄우려고). 바꾸기는 관리자만
+revoke all on public.site_settings from anon, authenticated;
+grant select on public.site_settings to anon, authenticated;
+grant update (closed, notice, updated_at) on public.site_settings to authenticated;
+
 -- job_checks : 읽기, "오늘 했어요" 체크와 취소
 revoke all on public.job_checks from anon, authenticated;
 grant select, delete on public.job_checks to authenticated;
@@ -487,6 +573,8 @@ alter table public.events enable row level security;
 alter table public.points enable row level security;
 alter table public.seat_rules enable row level security;
 alter table public.seat_draws enable row level security;
+alter table public.content_files enable row level security;
+alter table public.site_settings enable row level security;
 
 -- ---- profiles ----
 drop policy if exists "profiles: 로그인하면 읽기" on public.profiles;
@@ -743,6 +831,24 @@ create policy "seat_draws: 관리자만" on public.seat_draws
   for all to authenticated
   using ((select public.is_admin())) with check ((select public.is_admin()));
 
+-- ---- content_files : 로그인하면 읽기, 관리자만 올리고 지우기 ----
+drop policy if exists "content_files: 로그인하면 읽기" on public.content_files;
+create policy "content_files: 로그인하면 읽기" on public.content_files
+  for select to authenticated using (true);
+drop policy if exists "content_files: 관리자만 쓰고 지우기" on public.content_files;
+create policy "content_files: 관리자만 쓰고 지우기" on public.content_files
+  for all to authenticated
+  using ((select public.is_admin())) with check ((select public.is_admin()));
+
+-- ---- site_settings : 누구나 읽기(닫힘 화면용), 관리자만 바꾸기 ----
+drop policy if exists "site_settings: 누구나 읽기" on public.site_settings;
+create policy "site_settings: 누구나 읽기" on public.site_settings
+  for select to anon, authenticated using (true);
+drop policy if exists "site_settings: 관리자만 바꾸기" on public.site_settings;
+create policy "site_settings: 관리자만 바꾸기" on public.site_settings
+  for update to authenticated
+  using ((select public.is_admin())) with check ((select public.is_admin()));
+
 -- ---- student_names : 관리자만 (학생은 읽기도 안 됨) ----
 drop policy if exists "student_names: 관리자만" on public.student_names;
 create policy "student_names: 관리자만" on public.student_names
@@ -779,6 +885,16 @@ create policy "attachments: 로그인하면 내려받기" on storage.objects
   for select to authenticated
   using (bucket_id = 'attachments');
 
+-- 선생님: 수업·급식 자료는 admin/… 폴더에 올리기
+drop policy if exists "attachments: 관리자 자료 올리기" on storage.objects;
+create policy "attachments: 관리자 자료 올리기" on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'attachments'
+    and (storage.foldername(name))[1] = 'admin'
+    and (select public.is_admin())
+  );
+
 -- 내 폴더(내ID/내글번호/...)에만 올리기
 drop policy if exists "attachments: 내 글 폴더에만 올리기" on storage.objects;
 create policy "attachments: 내 글 폴더에만 올리기" on storage.objects
@@ -804,6 +920,39 @@ create policy "attachments: 올린 사람 또는 관리자만 지우기" on stor
     bucket_id = 'attachments'
     and ((storage.foldername(name))[1] = (select auth.uid())::text or (select public.is_admin()))
   );
+
+
+-- =====================================================================
+-- 9-2. 닫힘 잠금 : 사이트가 닫히면(site_settings.closed) 학생은 모든 표와 파일에 접근 불가
+--      "restrictive"(추가 잠금) 규칙이라 위의 다른 규칙을 통과해도 여기서 한 번 더 막힘.
+--      선생님(관리자)은 통과.
+-- =====================================================================
+do $$
+declare
+  t text;
+begin
+  foreach t in array array[
+    'profiles', 'posts', 'lessons', 'homework', 'meals', 'post_files', 'comments', 'topics',
+    'quizzes', 'quiz_questions', 'quiz_keys', 'quiz_attempts', 'quiz_starts', 'live_answers',
+    'post_likes', 'jobs', 'job_assignments', 'job_checks', 'events', 'points',
+    'seat_rules', 'seat_draws', 'content_files', 'student_names'
+  ] loop
+    execute format('drop policy if exists "닫힘 잠금" on public.%I', t);
+    execute format(
+      'create policy "닫힘 잠금" on public.%I as restrictive for all to authenticated '
+      'using ((select public.site_open()) or (select public.is_admin())) '
+      'with check ((select public.site_open()) or (select public.is_admin()))',
+      t
+    );
+  end loop;
+end;
+$$;
+
+drop policy if exists "attachments: 닫힘 잠금" on storage.objects;
+create policy "attachments: 닫힘 잠금" on storage.objects
+  as restrictive for all to authenticated
+  using (bucket_id <> 'attachments' or (select public.site_open()) or (select public.is_admin()))
+  with check (bucket_id <> 'attachments' or (select public.site_open()) or (select public.is_admin()));
 
 
 -- =====================================================================
@@ -834,6 +983,9 @@ declare
 begin
   if v_uid is null then
     raise exception '로그인이 필요해요.';
+  end if;
+  if not (public.site_open() or public.is_admin()) then
+    raise exception '사이트가 닫혀 있어요.';
   end if;
   select time_limit_sec into v_limit from public.quizzes where id = p_quiz_id and is_open and mode = 'self';
   if not found then
@@ -871,6 +1023,9 @@ declare
 begin
   if v_uid is null then
     raise exception '로그인이 필요해요.';
+  end if;
+  if not (public.site_open() or public.is_admin()) then
+    raise exception '사이트가 닫혀 있어요.';
   end if;
   if not exists (select 1 from public.quizzes where id = p_quiz_id and is_open and mode = 'self') then
     raise exception '닫혔거나 없는 퀴즈예요.';
@@ -931,6 +1086,7 @@ as $$
   from public.quiz_keys k
   join public.quiz_questions qq on qq.id = k.question_id
   where qq.quiz_id = p_quiz_id
+    and ((select public.site_open()) or (select public.is_admin()))
     and (
       exists (select 1 from public.quiz_attempts a where a.quiz_id = p_quiz_id and a.user_id = (select auth.uid()))
       or (select public.is_admin())
@@ -947,7 +1103,7 @@ set search_path = ''
 as $$
   select a.user_id, a.created_at
   from public.quiz_attempts a
-  where a.quiz_id = p_quiz_id and (select auth.uid()) is not null;
+  where a.quiz_id = p_quiz_id and (select auth.uid()) is not null and ((select public.site_open()) or (select public.is_admin()));
 $$;
 
 -- 빨리 푼 순위: 만점을 받은 사람만, 걸린 시간 순 (점수는 안 알려 줌). 로그인한 사람 누구나
@@ -963,7 +1119,7 @@ as $$
   where a.quiz_id = p_quiz_id
     and a.score = a.total
     and a.elapsed_ms is not null
-    and (select auth.uid()) is not null
+    and (select auth.uid()) is not null and ((select public.site_open()) or (select public.is_admin()))
   order by a.elapsed_ms;
 $$;
 
@@ -1021,7 +1177,7 @@ as $$
     'total', (select count(*) from public.quiz_questions qq where qq.quiz_id = q.id)
   )
   from public.quizzes q
-  where q.id = p_quiz_id and q.mode = 'live' and (select auth.uid()) is not null;
+  where q.id = p_quiz_id and q.mode = 'live' and (select auth.uid()) is not null and ((select public.site_open()) or (select public.is_admin()));
 $$;
 
 create or replace function public.answer_live(p_question_id bigint, p_answer text)
@@ -1041,6 +1197,9 @@ declare
 begin
   if v_uid is null then
     raise exception '로그인이 필요해요.';
+  end if;
+  if not (public.site_open() or public.is_admin()) then
+    raise exception '사이트가 닫혀 있어요.';
   end if;
   select q.* into v_quiz
   from public.quizzes q join public.quiz_questions qq on qq.quiz_id = q.id
@@ -1108,7 +1267,7 @@ as $$
   select p.id, rank() over (order by coalesce(sum(pt.points), 0) desc)
   from public.profiles p
   left join public.points pt on pt.user_id = p.id
-  where p.role = 'student' and (select auth.uid()) is not null
+  where p.role = 'student' and (select auth.uid()) is not null and ((select public.site_open()) or (select public.is_admin()))
   group by p.id;
 $$;
 

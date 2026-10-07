@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 const db = new PGlite();
 const schema = readFileSync(new URL('../supabase/schema.sql', import.meta.url), 'utf8');
 const makeAdmin = readFileSync(new URL('../supabase/make-admin.sql', import.meta.url), 'utf8');
+const emergency = readFileSync(new URL('../supabase/emergency-close.sql', import.meta.url), 'utf8');
 
 // Supabase 흉내: 역할, auth 스키마, auth.uid()
 await db.exec(`
@@ -15,6 +16,7 @@ await db.exec(`
   create role authenticated nologin;
   create schema auth;
   create table auth.users (id uuid primary key default gen_random_uuid(), email text);
+  create table auth.sessions (id uuid primary key default gen_random_uuid(), user_id uuid, ip text, user_agent text, created_at timestamptz default now(), updated_at timestamptz default now());
   create function auth.uid() returns uuid language sql stable as
     $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
   grant usage on schema auth to anon, authenticated;
@@ -41,6 +43,9 @@ await db.exec(schema); // 두 번 실행해도 되는지
 await db.exec(`insert into auth.users (email) values
   ('redsionkim@class52.local'), ('s01@class52.local'), ('s02@class52.local');`);
 await db.exec(makeAdmin);
+// schema.sql 은 사이트를 "닫힌 상태"로 만든다 → 기능 실험을 위해 먼저 연다 (닫힘 실험은 맨 끝에)
+const firstClosed = (await db.query('select closed from public.site_settings where id = 1')).rows[0]?.closed;
+await db.exec('update public.site_settings set closed = false where id = 1');
 
 const ids = Object.fromEntries(
   (await db.query(`select username, id from public.profiles`)).rows.map((r) => [r.username, r.id]),
@@ -492,6 +497,92 @@ await db.exec(`insert into public.posts (author_id, title, content) values ('${i
 await db.exec(`delete from auth.users where email='s01@class52.local'`);
 r = await db.query(`select count(*)::int as n from public.posts`);
 check('계정 삭제 시 글도 삭제', r.rows[0].n === 0, r.rows);
+
+// ---- 수업·급식 자료 (관리자만 올림) ----
+r = await as('redsionkim', `insert into public.lessons (lesson_date, subject) values ('2026-10-07', '미술') returning id`);
+check('수업: 내용 없이 과목만(사진용) 저장', !r.error, r);
+const photoLesson = r.rows[0].id;
+r = await as('redsionkim', `insert into public.meals (meal_date) values ('2026-10-07') returning id`);
+check('급식: 메뉴 글 없이(사진용) 저장', !r.error, r);
+const photoMeal = r.rows[0].id;
+r = await as('redsionkim', `insert into storage.objects (bucket_id, name) values ('attachments', 'admin/lesson/${photoLesson}/a.jpg')`);
+check('관리자: admin 폴더에 자료 올리기', !r.error, r);
+r = await as('redsionkim', `insert into public.content_files (lesson_id, path, name, size, mime) values (${photoLesson}, 'admin/lesson/${photoLesson}/a.jpg', '칠판.jpg', 1000, 'image/jpeg'), (null, 'x', 'y', 1, 'image/png')`);
+check('자료는 수업이나 급식 중 하나에 붙어야 함', !!r.error, r);
+r = await as('redsionkim', `insert into public.content_files (lesson_id, path, name, size, mime) values (${photoLesson}, 'admin/lesson/${photoLesson}/a.jpg', '칠판.jpg', 1000, 'image/jpeg')`);
+check('관리자: 수업 자료 기록', !r.error, r);
+r = await as('redsionkim', `insert into public.content_files (meal_id, path, name, size, mime) values (${photoMeal}, 'admin/meal/${photoMeal}/m.jpg', '식단표.jpg', 2000, 'image/jpeg')`);
+check('관리자: 급식 자료 기록', !r.error, r);
+r = await as('s02', `insert into storage.objects (bucket_id, name) values ('attachments', 'admin/lesson/${photoLesson}/b.jpg')`);
+check('학생: admin 폴더에 올리기 거부', !!r.error, r);
+r = await as('s02', `insert into public.content_files (lesson_id, path, name, size, mime) values (${photoLesson}, 'z', 'z.jpg', 1, 'image/jpeg')`);
+check('학생: 자료 기록 거부', !!r.error, r);
+r = await as('s02', `select name from public.content_files order by id`);
+check('학생: 자료 목록 보기', r.rows?.length === 2, r);
+r = await as('s02', `delete from public.content_files`);
+check('학생: 자료 지우기 0건', !r.error && r.affected === 0, r);
+await as('redsionkim', `delete from public.lessons where id=${photoLesson}`);
+r = await db.query(`select count(*)::int as n from public.content_files where lesson_id=${photoLesson}`);
+check('수업 삭제 시 자료 기록도 삭제', r.rows[0].n === 0, r.rows);
+
+// ---- 사이트 닫힘 (계정 도용 대응) ----
+check('schema.sql 실행 직후 사이트는 닫힌 상태', firstClosed === true, firstClosed);
+r = await as('anon', `select closed, notice from public.site_settings`);
+check('비로그인도 닫힘 여부·안내 문구 읽기', r.rows?.[0]?.notice?.includes('도용'), r);
+r = await as('s02', `update public.site_settings set closed = true`);
+check('학생: 사이트 닫기 0건', !r.error && r.affected === 0, r);
+r = await as('redsionkim', `update public.site_settings set closed = true, updated_at = now() where id = 1`);
+check('관리자: 사이트 닫기', !r.error && r.affected === 1, r);
+
+for (const table of ['posts', 'comments', 'lessons', 'homework', 'meals', 'events', 'quizzes', 'topics', 'profiles', 'content_files']) {
+  r = await as('s02', `select count(*)::int as n from public.${table}`);
+  check(`닫힘: 학생 ${table} 읽기 0건`, !r.error && r.rows[0].n === 0, r);
+}
+r = await as('s02', `select count(*)::int as n from storage.objects`);
+check('닫힘: 학생 파일 0건', !r.error && r.rows[0].n === 0, r);
+r = await as('s02', `insert into public.posts (title, content) values ('닫혔는데', '써짐?')`);
+check('닫힘: 학생 글쓰기 거부', !!r.error, r);
+r = await as('s02', `insert into public.comments (post_id, content) values (1, 'x')`);
+check('닫힘: 학생 댓글 거부', !!r.error, r);
+r = await as('s02', `select * from public.points_ranking()`);
+check('닫힘: 학생 순위 함수 0건', !r.error && r.rows.length === 0, r);
+r = await as('s02', `select * from public.live_state(${liveId})`);
+check('닫힘: 학생 실시간 상태 없음', !r.error && (r.rows.length === 0 || r.rows[0].live_state === null), r);
+r = await as('s02', `select public.answer_live(${lq1}, '2')`);
+check('닫힘: 학생 실시간 답하기 거부', !!r.error, r);
+r = await as('s02', `select public.is_admin() as a`);
+check('닫힘: 학생은 여전히 관리자 아님', r.rows?.[0]?.a === false, r);
+
+r = await as('redsionkim', `select count(*)::int as n from public.posts`);
+check('닫힘: 관리자는 글 읽기 그대로', !r.error && r.rows[0].n >= 0, r);
+r = await as('redsionkim', `insert into public.homework (title, due_date) values ('닫혀도 관리자는 됨', '2026-10-10')`);
+check('닫힘: 관리자 쓰기 그대로', !r.error, r);
+r = await as('redsionkim', `select count(*)::int as n from public.profiles`);
+check('닫힘: 관리자 명단 읽기 그대로', r.rows?.[0]?.n >= 2, r);
+
+r = await as('redsionkim', `update public.site_settings set closed = false where id = 1`);
+r = await as('s02', `select count(*)::int as n from public.homework`);
+check('다시 열면 학생 읽기 회복', !r.error && r.rows[0].n >= 1, r);
+await db.exec(schema);
+r = await db.query(`select closed from public.site_settings`);
+check('schema.sql 다시 실행해도 열림/닫힘 상태 유지', r.rows[0].closed === false, r.rows);
+
+// 긴급 SQL: 닫기 + 학생 로그인 끊기
+await db.exec(`insert into auth.sessions (user_id, ip) values ('${ids.s02}', '1.2.3.4'), ('${ids.redsionkim}', '5.6.7.8')`);
+await db.exec(emergency);
+r = await db.query(`select closed from public.site_settings`);
+check('긴급 SQL: 사이트 닫힘', r.rows[0].closed === true, r.rows);
+r = await db.query(`select user_id from auth.sessions`);
+check('긴급 SQL: 학생 로그인 끊김, 선생님은 유지', r.rows.length === 1 && r.rows[0].user_id === ids.redsionkim, r.rows);
+
+// 화면의 "학생 로그인 모두 끊기" 버튼 (sign_out_students)
+await db.exec(`insert into auth.sessions (user_id, ip) values ('${ids.s02}', '9.9.9.9')`);
+r = await as('s02', `select public.sign_out_students()`);
+check('학생: 로그인 끊기 함수 거부', !!r.error, r);
+r = await as('redsionkim', `select public.sign_out_students() as n`);
+check('관리자: 학생 로그인 끊기 (1개)', !r.error && r.rows[0].n === 1, r);
+r = await db.query(`select count(*)::int as n from auth.sessions where user_id='${ids.s02}'`);
+check('학생 세션 남지 않음', r.rows[0].n === 0, r.rows);
 
 console.log(`\n${pass} 통과 / ${fail} 실패`);
 process.exit(fail ? 1 : 0);

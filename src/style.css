@@ -1581,3 +1581,102 @@ button.race-button.danger {
   padding: 1px 6px;
   line-height: 1.35;
 }
+
+/* ---------- 메뉴 안 탭 (소통·수업·퀴즈·관리) ---------- */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  max-width: 800px;
+  margin: 16px auto 0;
+  padding: 0 16px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+}
+
+main:has(.home-grid) .tabs,
+main:has(.race) .tabs {
+  display: none;
+}
+
+.tabs a {
+  padding: 8px 14px;
+  color: var(--muted);
+  text-decoration: none;
+  white-space: nowrap;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -1px;
+}
+
+.tabs a:hover {
+  color: var(--text);
+}
+
+.tabs a.active {
+  color: var(--primary);
+  font-weight: 700;
+  border-bottom-color: var(--primary);
+}
+
+main .tabs + .view {
+  margin-top: 0;
+}
+
+/* ---------- 사이트 폐쇄 ---------- */
+
+.closed-page {
+  max-width: 480px;
+  margin: 48px auto 16px;
+  padding: 40px 24px;
+  text-align: center;
+}
+
+.closed-icon {
+  font-size: 4rem;
+}
+
+.closed-page h1 {
+  font-size: 1.8rem;
+  margin: 8px 0 12px;
+}
+
+.closed-notice {
+  font-size: 1.1rem;
+  color: var(--error-text);
+  white-space: pre-wrap;
+}
+
+.closed-admin {
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+.closed-admin a {
+  color: var(--muted);
+}
+
+.site-banner {
+  max-width: 800px;
+  margin: 12px auto 0;
+}
+
+.site-state.closed {
+  border-color: var(--error-text);
+}
+
+.site-state.open {
+  border-color: var(--ok-text);
+}
+
+button.danger-solid {
+  background: var(--error-text);
+  border-color: var(--error-text);
+}
+
+/* 글 없이 사진만 있는 카드에서는 첨부 칸 위 구분선을 없앰 */
+.card > .attachments:first-child,
+.list > li > .attachments:nth-child(2) {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
