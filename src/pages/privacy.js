@@ -9,7 +9,7 @@ export function render(view) {
   view.append(
     el('h1', {}, '개인정보 처리방침'),
     el('p', { class: 'row-meta' }, `판: ${PRIVACY_VERSION}`),
-    CONSENTS.map((consent) => el('section', { class: 'card consent' }, el('h2', {}, consent.title), consentDocument(consent))),
+    ...CONSENTS.map((consent) => el('section', { class: 'card consent' }, el('h2', {}, consent.title), consentDocument(consent))),
     el('p', {}, el('a', { href: '#/' }, '← 돌아가기')),
   );
 }
