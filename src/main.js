@@ -1,6 +1,6 @@
 import './style.css';
 import { configError, supabase } from './supabase.js';
-import { getCurrentUser, isAdmin, isApproved, onSignedOut, signOut } from './auth.js';
+import { forgetUser, getCurrentUser, isAdmin, isApproved, needsOnboarding, onSignedOut, signOut } from './auth.js';
 import { el, message } from './ui.js';
 import * as login from './pages/login.js';
 import * as me from './pages/me.js';
@@ -198,9 +198,27 @@ function closedPage(view, text) {
   );
 }
 
+// Google 로그인에서 돌아왔을 때: 실패 이유를 읽고, 주소의 ?code= / ?error= 를 깨끗이 지움
+let loginError = '';
+function readOAuthReturn() {
+  const params = new URLSearchParams(location.search);
+  const description = params.get('error_description') ?? params.get('error');
+  if (description) {
+    loginError = /goedu|database error|saving new user/i.test(description)
+      ? '학교 Google 계정(goedu.kr)으로만 로그인할 수 있어요. 학교 계정으로 다시 해 주세요.'
+      : /signups? not allowed|disabled/i.test(description)
+        ? '지금은 새로 가입을 받지 않아요. 선생님께 물어봐 주세요.'
+        : `Google 로그인에 실패했어요: ${description}`;
+  }
+}
+function cleanOAuthUrl() {
+  if (location.search) history.replaceState(null, '', location.pathname + (location.hash || '#/'));
+}
+
 async function render() {
   const route = parseHash();
   const [user, status] = await Promise.all([getCurrentUser(), siteStatus()]);
+  cleanOAuthUrl(); // 로그인 처리(코드 교환)가 끝난 뒤에 주소 정리
   const adminUser = isAdmin(user);
 
   // 페이지마다 새 틀을 만든다. (늦게 도착한 이전 페이지 결과가 새 화면을 덮지 않도록)
@@ -220,7 +238,7 @@ async function render() {
       privacy.render(view);
     } else if (route.name === 'login' && route.query.get('admin') === '1') {
       document.title = '선생님 로그인 · 5학년 2반';
-      await login.render(view, { query: route.query, params: [], adminOnly: true, afterLogin: () => (location.hash = '#/') });
+      await login.render(view, { query: route.query, params: [], adminOnly: true, loginError, afterLogin: () => (location.hash = '#/') });
       view.prepend(message('선생님(관리자) 계정만 로그인할 수 있어요. 학생 계정은 사이트가 닫혀 있어 들어갈 수 없어요.', 'warn'));
       view.append(el('p', { class: 'closed-admin' }, el('a', { href: '#/login' }, '← 돌아가기')));
     } else {
@@ -241,6 +259,18 @@ async function render() {
   }
   if (user && (route.name === 'login' || (route.name === 'signup' && !adminUser))) {
     location.replace('#/');
+    return;
+  }
+
+  // 학교 Google 계정으로 처음 들어옴: 동의 + 아이디 정하기부터
+  if (needsOnboarding(user) && route.name !== 'privacy') {
+    updateHeader(null, route.name);
+    app.replaceChildren(view);
+    logVisit(user);
+    await signup.renderOnboarding(view, user, () => {
+      forgetUser();
+      render();
+    });
     return;
   }
 
@@ -274,6 +304,7 @@ async function render() {
     params: route.params,
     query: route.query,
     refresh: render,
+    loginError,
     afterLogin: () => {
       location.hash = '#/';
     },
@@ -289,7 +320,8 @@ async function render() {
 if (configError) {
   notice.append(message(configError, 'error'));
 } else {
-  if (!location.hash) history.replaceState(null, '', '#/');
+  readOAuthReturn();
+  if (!location.hash) history.replaceState(null, '', location.pathname + location.search + '#/');
   showWarning();
   window.addEventListener('hashchange', render);
   onSignedOut(() => {

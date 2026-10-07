@@ -40,28 +40,46 @@ security definer
 set search_path = ''
 as $$
 declare
+  v_email text := lower(coalesce(new.email, ''));
+  v_domain text := split_part(lower(coalesce(new.email, '')), '@', 2);
+  v_provider text := coalesce(new.raw_app_meta_data ->> 'provider', 'email');
   v_username text := lower(split_part(coalesce(new.email, ''), '@', 1));
   v_real_name text := nullif(trim(coalesce(new.raw_user_meta_data ->> 'real_name', '')), '');
   v_agreed_at timestamptz;
+  v_version text;
+  v_google boolean := false;
 begin
-  -- 우리 반 형식(아이디@class52.local)이 아닌 가입은 막음
-  if coalesce(new.email, '') not like '%@class52.local' or v_username !~ '^[a-z0-9_]{2,30}$' then
-    raise exception '아이디는 영어 소문자·숫자·_ 2~30자로 해 주세요.';
+  if v_provider = 'google' then
+    -- 학교 Google 계정(goedu.kr, 경기도교육청)만 받음. 다른 Google 계정은 가입 자체를 막음
+    if not (v_domain = 'goedu.kr' or v_domain like '%.goedu.kr') then
+      raise exception '학교 Google 계정(goedu.kr)으로만 가입할 수 있어요.';
+    end if;
+    v_google := true;
+    -- 임시 아이디. 처음 들어와서 동의할 때 자기 아이디로 바꿈 (complete_signup)
+    v_username := 'g_' || left(replace(new.id::text, '-', ''), 12);
+    v_real_name := nullif(trim(coalesce(new.raw_user_meta_data ->> 'full_name', new.raw_user_meta_data ->> 'name', '')), '');
+  else
+    -- 아이디·비밀번호 가입은 우리 반 형식(아이디@class52.local)만
+    if v_email not like '%@class52.local' or v_username !~ '^[a-z0-9_]{2,30}$' then
+      raise exception '아이디는 영어 소문자·숫자·_ 2~30자로 해 주세요.';
+    end if;
+    begin
+      v_agreed_at := (new.raw_user_meta_data ->> 'privacy_agreed_at')::timestamptz;
+    exception when others then
+      v_agreed_at := null;
+    end;
+    v_version := left(new.raw_user_meta_data ->> 'privacy_version', 30);
   end if;
-  begin
-    v_agreed_at := (new.raw_user_meta_data ->> 'privacy_agreed_at')::timestamptz;
-  exception when others then
-    v_agreed_at := null;
-  end;
 
+  -- Google 가입은 아직 동의 전(privacy_agreed_at 비어 있음) → 화면에서 동의를 받음
   insert into public.profiles (id, username, privacy_agreed_at, privacy_version)
-  values (new.id, v_username, v_agreed_at, left(new.raw_user_meta_data ->> 'privacy_version', 30))
+  values (new.id, v_username, v_agreed_at, v_version)
   on conflict (id) do nothing;
 
-  -- 가입할 때 쓴 이름은 선생님만 보는 실명 표에 (승인할 때 누구인지 확인용)
-  if v_real_name is not null then
-    insert into public.student_names (user_id, real_name)
-    values (new.id, left(v_real_name, 20))
+  -- 이름(과 학교 이메일)은 선생님만 보는 실명 표에 (승인할 때 누구인지 확인용)
+  if v_real_name is not null or v_google then
+    insert into public.student_names (user_id, real_name, email)
+    values (new.id, left(coalesce(v_real_name, v_username), 20), case when v_google then left(v_email, 200) end)
     on conflict (user_id) do nothing;
   end if;
   return new;
@@ -517,6 +535,9 @@ create table if not exists public.student_names (
   real_name  text not null check (char_length(real_name) between 1 and 20),       -- 실명
   updated_at timestamptz not null default now()
 );
+
+-- 학교 Google 계정으로 가입한 경우 그 이메일 (선생님만 봄, 승인할 때 확인용)
+alter table public.student_names add column if not exists email text check (email is null or char_length(email) <= 200);
 
 
 -- 글 하나에 파일은 최대 5개
@@ -1363,6 +1384,10 @@ begin
   if p_status not in ('pending', 'approved') then
     raise exception '알 수 없는 상태예요.';
   end if;
+  -- 개인정보 동의를 하지 않은 계정은 승인할 수 없음
+  if p_status = 'approved' and exists (select 1 from public.profiles where id = p_user_id and privacy_agreed_at is null and status = 'pending') then
+    raise exception '아직 개인정보 동의를 하지 않은 계정이에요.';
+  end if;
   update public.profiles set status = p_status where id = p_user_id and role = 'student';
 end;
 $$;
@@ -1408,6 +1433,68 @@ begin
   delete from public.access_logs where created_at < now() - interval '1 year';
 end;
 $$;
+
+-- Google로 처음 들어온 학생: 두 가지 동의 + 아이디·이름 정하기 → 가입 요청 완료 (승인 대기)
+create or replace function public.complete_signup(p_username text, p_real_name text, p_privacy_version text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_username text := lower(trim(coalesce(p_username, '')));
+  v_name text := trim(coalesce(p_real_name, ''));
+begin
+  if v_uid is null then
+    raise exception '로그인이 필요해요.';
+  end if;
+  if not exists (select 1 from public.profiles where id = v_uid and status = 'pending' and privacy_agreed_at is null) then
+    raise exception '이미 가입 요청을 보냈어요.';
+  end if;
+  if v_username !~ '^[a-z0-9_]{2,30}$' or v_username like 'g\_%' then
+    raise exception '아이디는 영어 소문자·숫자·_ 2~30자로 해 주세요. (g_ 로 시작할 수 없어요)';
+  end if;
+  if exists (select 1 from public.profiles where username = v_username and id <> v_uid) then
+    raise exception '이미 있는 아이디예요.';
+  end if;
+  if char_length(v_name) not between 1 and 20 then
+    raise exception '이름을 써 주세요. (20자 이내)';
+  end if;
+  if coalesce(p_privacy_version, '') = '' then
+    raise exception '두 가지 동의가 필요해요.';
+  end if;
+
+  update public.profiles
+  set username = v_username, privacy_agreed_at = now(), privacy_version = left(p_privacy_version, 30)
+  where id = v_uid;
+
+  insert into public.student_names (user_id, real_name)
+  values (v_uid, v_name)
+  on conflict (user_id) do update set real_name = excluded.real_name, updated_at = now();
+end;
+$$;
+
+-- 동의하지 않으면: 아직 승인 대기인 내 계정을 스스로 지움 (Google 정보도 함께 지워짐)
+create or replace function public.cancel_signup()
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if auth.uid() is null then
+    raise exception '로그인이 필요해요.';
+  end if;
+  if not exists (select 1 from public.profiles where id = auth.uid() and status = 'pending' and role = 'student') then
+    raise exception '승인 대기 중인 계정만 스스로 지울 수 있어요.';
+  end if;
+  delete from auth.users where id = auth.uid();
+end;
+$$;
+
+revoke execute on function public.complete_signup(text, text, text), public.cancel_signup() from public, anon;
+grant execute on function public.complete_signup(text, text, text), public.cancel_signup() to authenticated;
 
 revoke execute on function public.set_member_status(uuid, text), public.remove_member(uuid), public.log_visit() from public, anon;
 grant execute on function public.set_member_status(uuid, text), public.remove_member(uuid), public.log_visit() to authenticated;
