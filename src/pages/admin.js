@@ -21,7 +21,7 @@ export async function render(view, ctx) {
 
   const [{ data: profiles, error }, { data: names, error: namesError }, { data: logs, error: logsError }] = await Promise.all([
     supabase.from('profiles').select('id, username, nickname, role, status, privacy_agreed_at, privacy_version, created_at').order('username'),
-    supabase.from('student_names').select('user_id, real_name, email'),
+    supabase.from('student_names').select('user_id, real_name'),
     supabase.from('access_logs').select('user_id, ip, user_agent, created_at').order('created_at', { ascending: false }).limit(100),
   ]);
   if (error || namesError) {
@@ -30,7 +30,6 @@ export async function render(view, ctx) {
   }
 
   const saved = new Map(names.map((row) => [row.user_id, row.real_name]));
-  const emails = new Map(names.filter((row) => row.email).map((row) => [row.user_id, row.email]));
   const pending = profiles.filter((p) => p.role === 'student' && p.status === 'pending');
   const students = profiles.filter((p) => p.role === 'student' && p.status !== 'pending');
   const byId = new Map(profiles.map((p) => [p.id, p]));
@@ -56,8 +55,7 @@ export async function render(view, ctx) {
           'ul',
           { class: 'list compact' },
           pending.map((p) => {
-            const consented = !!p.privacy_agreed_at;
-            const approve = el('button', { type: 'button', class: 'small', disabled: !consented, title: consented ? null : '아직 동의·가입 요청 전이라 승인할 수 없어요' }, consented ? '승인' : '동의 전');
+            const approve = el('button', { type: 'button', class: 'small' }, '승인');
             const reject = el('button', { type: 'button', class: 'danger small' }, '거절(삭제)');
             approve.addEventListener('click', () => call(approve, 'set_member_status', { p_user_id: p.id, p_status: 'approved' }));
             reject.addEventListener('click', () => call(reject, 'remove_member', { p_user_id: p.id }, `${p.username} 가입 요청을 거절하고 계정을 지울까요?`));
@@ -66,7 +64,6 @@ export async function render(view, ctx) {
               { class: 'item-head' },
               el('strong', {}, p.username),
               el('span', {}, saved.get(p.id) ?? '(이름 없음)'),
-              emails.has(p.id) ? el('span', { class: 'badge later', title: '학교 Google 계정' }, `🏫 ${emails.get(p.id)}`) : null,
               el('span', { class: 'row-meta' }, `요청 ${formatDateTime(p.created_at)} · 동의 ${p.privacy_agreed_at ? `${formatDateTime(p.privacy_agreed_at)} (${p.privacy_version ?? '-'})` : '기록 없음'}`),
               el('span', { class: 'spacer' }),
               approve,

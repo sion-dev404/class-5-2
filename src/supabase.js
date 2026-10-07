@@ -11,5 +11,4 @@ export const configError =
     ? 'Supabase 접속 정보가 없어요. 내 컴퓨터라면 .env.local 을, GitHub Pages라면 저장소의 Actions Variables(VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY)를 확인해 주세요.'
     : null;
 
-// Google 로그인은 PKCE 방식: 돌아올 때 주소의 ?code= 를 Supabase가 바꿔 줌 (# 주소와 섞이지 않음)
-export const supabase = configError ? null : createClient(url, publishableKey, { auth: { flowType: 'pkce' } });
+export const supabase = configError ? null : createClient(url, publishableKey);

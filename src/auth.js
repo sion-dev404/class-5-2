@@ -1,5 +1,5 @@
 import { supabase } from './supabase.js';
-import { ID_DOMAIN, SCHOOL_GOOGLE_DOMAIN } from './config.js';
+import { ID_DOMAIN } from './config.js';
 import { PRIVACY_VERSION } from './privacy.js';
 
 // 아이디: 영어 소문자·숫자·_ 만 (예: s01, redsionkim)
@@ -63,33 +63,6 @@ export async function signUp(username, password, realName) {
   return { error: null, signedIn: !!data?.session };
 }
 
-// 학교 Google 계정으로 로그인 (Google 화면으로 갔다가 이 누리집으로 돌아옴)
-export async function signInWithGoogle() {
-  cachedUser = undefined;
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: {
-      redirectTo: location.origin + location.pathname,
-      queryParams: { hd: SCHOOL_GOOGLE_DOMAIN, prompt: 'select_account' }, // 학교 계정이 먼저 보이게
-    },
-  });
-  return { error };
-}
-
-// Google로 처음 들어온 학생: 동의 + 아이디·이름 → 가입 요청
-export async function completeSignup(username, realName) {
-  const { error } = await supabase.rpc('complete_signup', { p_username: normalizeUsername(username), p_real_name: realName.trim(), p_privacy_version: PRIVACY_VERSION });
-  cachedUser = undefined;
-  return { error: error ? { message: error.message } : null };
-}
-
-// 동의하지 않음: 승인 대기 중인 내 계정 지우기
-export async function cancelSignup() {
-  const { error } = await supabase.rpc('cancel_signup');
-  if (!error) await signOut();
-  return { error };
-}
-
 export async function signOut() {
   cachedUser = null;
   await supabase.auth.signOut();
@@ -107,14 +80,11 @@ export async function getCurrentUser() {
   }
 
   const query = (columns) => supabase.from('profiles').select(columns).eq('id', session.user.id).maybeSingle();
-  let { data: profile, error } = await query('id, username, nickname, role, status, privacy_agreed_at');
+  let { data: profile, error } = await query('id, username, nickname, role, status');
   if (error?.code === '42703') {
     // 승인 상태 칸이 아직 없으면(SQL 실행 전) 예전처럼
     ({ data: profile } = await query('id, username, nickname, role'));
-    if (profile) {
-      profile.status = 'approved';
-      profile.privacy_agreed_at = 'old';
-    }
+    if (profile) profile.status = 'approved';
   }
 
   cachedUser = profile ?? {
@@ -135,11 +105,6 @@ export function forgetUser() {
 
 export function isAdmin(user) {
   return user?.role === 'admin';
-}
-
-// Google로 들어와서 아직 동의·가입 요청을 하지 않은 상태
-export function needsOnboarding(user) {
-  return !!user && !isAdmin(user) && user.status === 'pending' && !user.privacy_agreed_at && !user.profileMissing;
 }
 
 export function isApproved(user) {

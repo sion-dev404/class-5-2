@@ -16,7 +16,7 @@ await db.exec(`
   create role anon nologin;
   create role authenticated nologin;
   create schema auth;
-  create table auth.users (id uuid primary key default gen_random_uuid(), email text, raw_user_meta_data jsonb default '{}'::jsonb, raw_app_meta_data jsonb default '{"provider":"email"}'::jsonb);
+  create table auth.users (id uuid primary key default gen_random_uuid(), email text, raw_user_meta_data jsonb default '{}'::jsonb);
   create table auth.sessions (id uuid primary key default gen_random_uuid(), user_id uuid, ip text, user_agent text, created_at timestamptz default now(), updated_at timestamptz default now());
   create function auth.uid() returns uuid language sql stable as
     $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
@@ -565,48 +565,6 @@ check('관리자 계정은 삭제 불가', !!r.error, r);
 r = await as('redsionkim', `select public.remove_member('${ids.newkid}')`);
 r = await db.query(`select (select count(*) from auth.users where id = '${ids.newkid}')::int as u, (select count(*) from public.student_names where user_id = '${ids.newkid}')::int as n`);
 check('관리자: 계정 삭제(거절) → 계정·실명 함께 삭제', r.rows[0].u === 0 && r.rows[0].n === 0, r.rows);
-
-// ---- 학교 Google 계정 (goedu.kr) ----
-r = await db.query(`insert into auth.users (email, raw_app_meta_data) values ('kid@gmail.com', '{"provider":"google"}')`).catch((e) => ({ error: e.message }));
-check('Google: 일반 Gmail 가입 거부', !!r.error && r.error.includes('goedu.kr'), r);
-r = await db.query(`insert into auth.users (email, raw_app_meta_data) values ('kid@goedu.kr.evil.com', '{"provider":"google"}')`).catch((e) => ({ error: e.message }));
-check('Google: 비슷한 가짜 도메인 거부', !!r.error, r);
-await db.exec(`insert into auth.users (email, raw_app_meta_data, raw_user_meta_data) values ('hong123@s.goedu.kr', '{"provider":"google"}', '{"full_name":"홍가람"}')`);
-r = await db.query(`select p.id, p.username, p.status, p.privacy_agreed_at, n.real_name, n.email from public.profiles p left join public.student_names n on n.user_id = p.id where n.email = 'hong123@s.goedu.kr'`);
-check('Google: 학교 계정 → 승인 대기, 임시 아이디, 동의 전, 이름·학교 이메일은 실명 표', r.rows[0]?.status === 'pending' && r.rows[0].username.startsWith('g_') && r.rows[0].privacy_agreed_at === null && r.rows[0].real_name === '홍가람', r.rows);
-ids.gkid = r.rows[0].id;
-await db.exec(`insert into auth.users (email, raw_app_meta_data) values ('lee@goedu.kr', '{"provider":"google"}')`);
-ids.gkid2 = (await db.query(`select user_id from public.student_names where email = 'lee@goedu.kr'`)).rows[0].user_id;
-
-r = await as('gkid', `select count(*)::int as n from public.posts`);
-check('Google 동의 전: 자료 0건', !r.error && r.rows[0].n === 0, r);
-r = await as('redsionkim', `select public.set_member_status('${ids.gkid}', 'approved')`);
-check('동의 전에는 선생님도 승인 불가', !!r.error && r.error.includes('동의'), r);
-r = await as('gkid', `select public.complete_signup('g_hacker', '홍가람', '2026-10-07.2')`);
-check('아이디는 g_ 로 시작 불가', !!r.error, r);
-r = await as('gkid', `select public.complete_signup('redsionkim', '홍가람', '2026-10-07.2')`);
-check('이미 있는 아이디 거부', !!r.error && r.error.includes('이미 있는'), r);
-r = await as('gkid', `select public.complete_signup('garam', '홍가람', '')`);
-check('동의 판 없으면 거부', !!r.error, r);
-r = await as('gkid', `select public.complete_signup('Garam', '홍가람', '2026-10-07.2')`);
-check('Google: 동의 + 아이디 정하기 완료', !r.error, r);
-r = await db.query(`select username, privacy_version, privacy_agreed_at from public.profiles where id = '${ids.gkid}'`);
-check('아이디(소문자)·동의 기록 저장', r.rows[0].username === 'garam' && r.rows[0].privacy_version === '2026-10-07.2' && !!r.rows[0].privacy_agreed_at, r.rows);
-r = await as('gkid', `select public.complete_signup('garam2', '홍가람', '2026-10-07.2')`);
-check('가입 요청은 한 번만', !!r.error, r);
-r = await as('redsionkim', `select real_name, email from public.student_names where user_id = '${ids.gkid}'`);
-check('선생님: 이름과 학교 이메일 확인', r.rows[0]?.real_name === '홍가람' && r.rows[0].email === 'hong123@s.goedu.kr', r);
-r = await as('gkid', `select email from public.student_names`);
-check('학생: 자기 이메일·실명도 못 읽음', !r.error && r.rows.length === 0, r);
-r = await as('redsionkim', `select public.set_member_status('${ids.gkid}', 'approved')`);
-check('동의 후 선생님 승인', !r.error, r);
-r = await as('gkid', `select count(*)::int as n from public.homework`);
-check('승인된 Google 학생: 자료 보임', !r.error && r.rows[0].n >= 1, r);
-r = await as('gkid', `select public.cancel_signup()`);
-check('승인된 학생은 스스로 계정 삭제 불가', !!r.error, r);
-r = await as('gkid2', `select public.cancel_signup()`);
-r = await db.query(`select count(*)::int as n from auth.users where id = '${ids.gkid2}'`);
-check('동의 안 함 → 내 계정 스스로 삭제', r.rows[0].n === 0, r.rows);
 
 // ---- 접속 기록 ----
 r = await as('s02', `select public.log_visit()`);
