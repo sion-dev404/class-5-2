@@ -566,11 +566,15 @@ r = await as('redsionkim', `select public.remove_member('${ids.newkid}')`);
 r = await db.query(`select (select count(*) from auth.users where id = '${ids.newkid}')::int as u, (select count(*) from public.student_names where user_id = '${ids.newkid}')::int as n`);
 check('관리자: 계정 삭제(거절) → 계정·실명 함께 삭제', r.rows[0].u === 0 && r.rows[0].n === 0, r.rows);
 
-// ---- 학교 Google 계정 (goedu.kr) ----
-r = await db.query(`insert into auth.users (email, raw_app_meta_data) values ('kid@gmail.com', '{"provider":"google"}')`).catch((e) => ({ error: e.message }));
-check('Google: 일반 Gmail 가입 거부', !!r.error && r.error.includes('goedu.kr'), r);
-r = await db.query(`insert into auth.users (email, raw_app_meta_data) values ('kid@goedu.kr.evil.com', '{"provider":"google"}')`).catch((e) => ({ error: e.message }));
-check('Google: 비슷한 가짜 도메인 거부', !!r.error, r);
+// ---- Google 계정 (어느 Google 계정이든, 동의 + 승인 필요) ----
+r = await db.query(`insert into auth.users (email, raw_app_meta_data, raw_user_meta_data) values ('kid@gmail.com', '{"provider":"google"}', '{"name":"아무개"}') returning id`).catch((e) => ({ error: e.message }));
+check('Google: 일반 Gmail도 가입 (승인 대기)', !r.error, r);
+const gmailId = r.rows?.[0]?.id;
+r = await db.query(`select status, privacy_agreed_at from public.profiles where id = '${gmailId}'`);
+check('Google Gmail: 승인 대기 + 동의 전', r.rows[0]?.status === 'pending' && r.rows[0].privacy_agreed_at === null, r.rows);
+await db.exec(`delete from auth.users where id = '${gmailId}'`);
+r = await db.query(`insert into auth.users (email, raw_app_meta_data) values (null, '{"provider":"google"}')`).catch((e) => ({ error: e.message }));
+check('Google: 이메일 없는 계정 거부', !!r.error, r);
 await db.exec(`insert into auth.users (email, raw_app_meta_data, raw_user_meta_data) values ('hong123@s.goedu.kr', '{"provider":"google"}', '{"full_name":"홍가람"}')`);
 r = await db.query(`select p.id, p.username, p.status, p.privacy_agreed_at, n.real_name, n.email from public.profiles p left join public.student_names n on n.user_id = p.id where n.email = 'hong123@s.goedu.kr'`);
 check('Google: 학교 계정 → 승인 대기, 임시 아이디, 동의 전, 이름·학교 이메일은 실명 표', r.rows[0]?.status === 'pending' && r.rows[0].username.startsWith('g_') && r.rows[0].privacy_agreed_at === null && r.rows[0].real_name === '홍가람', r.rows);

@@ -50,9 +50,9 @@ declare
   v_google boolean := false;
 begin
   if v_provider = 'google' then
-    -- 학교 Google 계정(goedu.kr, 경기도교육청)만 받음. 다른 Google 계정은 가입 자체를 막음
-    if not (v_domain = 'goedu.kr' or v_domain like '%.goedu.kr') then
-      raise exception '학교 Google 계정(goedu.kr)으로만 가입할 수 있어요.';
+    -- Google 계정은 어느 것이든 받음 (이메일이 없는 계정만 막음). 쓰려면 동의 + 선생님 승인이 필요
+    if v_email = '' or v_domain = '' then
+      raise exception '이메일이 있는 Google 계정으로 가입해 주세요.';
     end if;
     v_google := true;
     -- 임시 아이디. 처음 들어와서 동의할 때 자기 아이디로 바꿈 (complete_signup)
@@ -76,7 +76,7 @@ begin
   values (new.id, v_username, v_agreed_at, v_version)
   on conflict (id) do nothing;
 
-  -- 이름(과 학교 이메일)은 선생님만 보는 실명 표에 (승인할 때 누구인지 확인용)
+  -- 이름(과 Google 이메일)은 선생님만 보는 실명 표에 (승인할 때 누구인지 확인용)
   if v_real_name is not null or v_google then
     insert into public.student_names (user_id, real_name, email)
     values (new.id, left(coalesce(v_real_name, v_username), 20), case when v_google then left(v_email, 200) end)
@@ -536,7 +536,7 @@ create table if not exists public.student_names (
   updated_at timestamptz not null default now()
 );
 
--- 학교 Google 계정으로 가입한 경우 그 이메일 (선생님만 봄, 승인할 때 확인용)
+-- Google 계정으로 가입한 경우 그 이메일 (선생님만 봄, 승인할 때 확인용)
 alter table public.student_names add column if not exists email text check (email is null or char_length(email) <= 200);
 
 

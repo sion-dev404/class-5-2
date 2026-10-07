@@ -24,8 +24,8 @@ export function render(view, ctx) {
   const status = el('div');
   const button = el('button', { type: 'submit' }, '로그인');
 
-  // 학교 Google 계정 로그인 (goedu.kr). 선생님 전용 로그인 화면에서는 숨김
-  const googleButton = ctx.adminOnly ? null : el('button', { type: 'button', class: 'google-button' }, el('span', { class: 'google-g', 'aria-hidden': 'true' }, 'G'), ' 학교 Google 계정으로 로그인');
+  // Google 계정 로그인. 선생님 전용 로그인 화면에서는 숨김
+  const googleButton = ctx.adminOnly ? null : el('button', { type: 'button', class: 'google-button' }, el('span', { class: 'google-g', 'aria-hidden': 'true' }, 'G'), ' Google 계정으로 로그인');
   googleButton?.addEventListener('click', () =>
     withBusy(googleButton, async () => {
       status.replaceChildren(message('Google 로그인 화면으로 가는 중…'));
@@ -33,7 +33,7 @@ export function render(view, ctx) {
       if (error) status.replaceChildren(message(`Google 로그인을 시작하지 못했어요: ${error.message}`, 'error'));
     }),
   );
-  // Google에서 돌아왔는데 실패한 경우 (학교 계정이 아님 등)
+  // Google에서 돌아왔는데 실패한 경우
   if (ctx.loginError) status.replaceChildren(message(ctx.loginError, 'error'));
 
   const form = el(
@@ -48,7 +48,7 @@ export function render(view, ctx) {
     button,
     googleButton ? el('div', { class: 'or-line' }, '또는') : null,
     googleButton,
-    googleButton ? el('p', { class: 'row-meta center-text' }, '경기도교육청 학교 계정(goedu.kr)만 쓸 수 있어요.') : null,
+    googleButton ? el('p', { class: 'row-meta center-text' }, '처음이면 동의하고 선생님 승인을 받은 뒤 쓸 수 있어요.') : null,
     message('🔒 학교나 공용 컴퓨터에서는 다 쓰고 꼭 로그아웃하세요.', 'warn'),
     message('비밀번호를 잊었으면 선생님께 말씀해 주세요.'),
     el(

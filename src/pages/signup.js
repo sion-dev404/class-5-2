@@ -108,13 +108,13 @@ export function render(view, ctx) {
 
   if (ctx.preview) view.append(message('👀 미리보기: 지금은 사이트가 닫혀 있어서 학생에게는 이 화면이 보이지 않아요.', 'warn'));
   view.append(
-    message('🏫 학교 Google 계정이 있으면 로그인 화면의 "학교 Google 계정으로 로그인"으로 더 쉽게 가입할 수 있어요.', 'ok'),
+    message('Google 계정이 있으면 로그인 화면의 "Google 계정으로 로그인"으로 더 쉽게 가입할 수 있어요.', 'ok'),
     consents.element,
     step2,
   );
 }
 
-// 학교 Google 계정으로 처음 들어온 학생: ① 두 가지 동의 → ② 아이디·이름 → 가입 요청 (승인 대기)
+// Google 계정으로 처음 들어온 학생: ① 두 가지 동의 → ② 아이디·이름 → 가입 요청 (승인 대기)
 //   동의하지 않으면 계정을 바로 지움
 export async function renderOnboarding(view, user, done) {
   const { data } = await supabase.auth.getUser();
@@ -124,7 +124,7 @@ export async function renderOnboarding(view, user, done) {
   const status = el('div');
   const cancel = el('button', { type: 'button', class: 'danger' }, '동의하지 않아요 (가입 취소)');
   cancel.addEventListener('click', () => {
-    if (!confirm('가입을 취소할까요? 이 학교 계정 정보는 누리집에서 바로 지워져요.')) return;
+    if (!confirm('가입을 취소할까요? 이 Google 계정 정보는 누리집에서 바로 지워져요.')) return;
     withBusy(cancel, async () => {
       const { error } = await cancelSignup();
       if (error) return status.replaceChildren(message(`취소하지 못했어요: ${error.message}`, 'error'));
@@ -133,7 +133,7 @@ export async function renderOnboarding(view, user, done) {
   });
 
   const step2 = el('form', { class: 'card signup-step', hidden: true });
-  const consents = consentStep('학교 Google 계정으로 가입 (1/2) · 동의하기', () => {
+  const consents = consentStep('Google 계정으로 가입 (1/2) · 동의하기', () => {
     consents.element.hidden = true;
     step2.hidden = false;
     idInput.focus();
@@ -143,8 +143,8 @@ export async function renderOnboarding(view, user, done) {
   const nameInput = el('input', { id: 'ob-name', maxlength: '20', autocomplete: 'off', value: googleName, placeholder: '선생님 확인용 (김시온만 봐요)' });
   const submit = el('button', { type: 'submit' }, '가입 요청 보내기');
   step2.append(
-    el('h1', {}, '학교 Google 계정으로 가입 (2/2) · 가입 요청'),
-    message(`학교 계정: ${schoolEmail}`),
+    el('h1', {}, 'Google 계정으로 가입 (2/2) · 가입 요청'),
+    message(`Google 계정: ${schoolEmail}`),
     el('label', { for: 'ob-id' }, '누리집에서 쓸 아이디'),
     idInput,
     el('label', { for: 'ob-name' }, '이름'),

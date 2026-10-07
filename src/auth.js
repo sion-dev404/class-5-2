@@ -1,5 +1,5 @@
 import { supabase } from './supabase.js';
-import { ID_DOMAIN, SCHOOL_GOOGLE_DOMAIN } from './config.js';
+import { ID_DOMAIN } from './config.js';
 import { PRIVACY_VERSION } from './privacy.js';
 
 // 아이디: 영어 소문자·숫자·_ 만 (예: s01, redsionkim)
@@ -63,14 +63,14 @@ export async function signUp(username, password, realName) {
   return { error: null, signedIn: !!data?.session };
 }
 
-// 학교 Google 계정으로 로그인 (Google 화면으로 갔다가 이 누리집으로 돌아옴)
+// Google 계정으로 로그인 (Google 화면으로 갔다가 이 누리집으로 돌아옴)
 export async function signInWithGoogle() {
   cachedUser = undefined;
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
       redirectTo: location.origin + location.pathname,
-      queryParams: { hd: SCHOOL_GOOGLE_DOMAIN, prompt: 'select_account' }, // 학교 계정이 먼저 보이게
+      queryParams: { prompt: 'select_account' }, // 여러 계정 중 고를 수 있게
     },
   });
   return { error };

@@ -585,16 +585,17 @@ create policy "lessons_write" on lessons for all    to authenticated
 
 ---
 
-## 15. 학교 Google 계정 로그인 (goedu.kr, 2026-10-07)
+## 15. Google 계정 로그인 (2026-10-07)
 
-- 로그인 화면 "학교 Google 계정으로 로그인" → Supabase Google 로그인(PKCE 방식, 돌아올 때 `?code=`) → 누리집으로 돌아옴.
-- **DB가 도메인을 검사**: `goedu.kr` 또는 `○○.goedu.kr` 계정만 가입 가능, 그 밖의 Google 계정은 계정 자체가 만들어지지 않음. Google 화면에도 `hd=goedu.kr` 힌트.
-- 처음 들어온 Google 계정: 임시 아이디(`g_…`), 승인 대기, 동의 전 → 화면에서 **동의 2개 → 아이디·이름 정하기**(`complete_signup`) → 승인 대기. "동의하지 않아요"를 누르면 계정을 스스로 지움(`cancel_signup`).
-- 동의 전 계정은 선생님도 승인할 수 없음. 학교 이메일은 `student_names.email`(선생님만)에 저장, 가입 요청 목록에 🏫로 표시.
-- 개인정보 동의서에 "학교 이메일 주소와 Google 계정 이름" 추가, 판 `2026-10-07.2`.
+- 로그인 화면 "Google 계정으로 로그인" → Supabase Google 로그인(PKCE 방식, 돌아올 때 `?code=`) → 누리집으로 돌아옴.
+- **어느 Google 계정이든** 로그인 가능 (처음엔 학교 계정 goedu.kr만 받으려 했으나, 선생님 결정으로 제한을 없앰). 이메일이 없는 계정만 막음.
+- 대신 **동의 2개 + 선생님 승인**이 꼭 필요: 처음 들어온 Google 계정은 임시 아이디(`g_…`), 승인 대기, 동의 전 → 화면에서 동의 → 아이디·이름 정하기(`complete_signup`) → 승인 대기. "동의하지 않아요"를 누르면 계정을 스스로 지움(`cancel_signup`).
+- 동의 전 계정은 선생님도 승인할 수 없음. Google 이메일은 `student_names.email`(선생님만)에 저장, 가입 요청 목록에 ✉️로 표시.
+- 개인정보 동의서에 "Google 계정 이메일 주소와 이름" 추가, 판 `2026-10-07.2`.
 
-### 🧑‍🏫 설정 (비밀값은 화면에만)
+### 🧑‍🏫 설정 (완료: Google Cloud 클라이언트, Supabase Google 켜기)
 1. SQL Editor → `supabase/schema.sql` 다시 Run
-2. Google Cloud Console → OAuth 동의 화면 + OAuth 클라이언트 ID(웹) 만들기 → 승인된 리디렉션 URI: `https://(프로젝트).supabase.co/auth/v1/callback`
-3. Supabase → Authentication → Sign In / Providers → **Google** 켜기, 클라이언트 ID·보안 비밀 붙여넣기
-4. Supabase → Authentication → URL Configuration → Site URL·Redirect URLs: `https://sion-dev404.github.io/class-5-2/` (내 컴퓨터 시험용: `http://localhost:5173/class-5-2/`)
+2. (완료) Google 인증 플랫폼: 브랜딩(앱 이름·지원 이메일·홈페이지·개인정보처리방침 링크·승인된 도메인 `sion-dev404.github.io`, `(프로젝트).supabase.co`) → 대상: 외부, 앱 게시 → 클라이언트: 웹 애플리케이션, 리디렉션 URI `https://(프로젝트).supabase.co/auth/v1/callback`
+3. (완료) Supabase → Authentication → Sign In / Providers → Google 켜기 (Skip nonce checks·Allow users without an email 은 끈 채로)
+4. Supabase → Authentication → URL Configuration → Site URL·Redirect URLs: `https://sion-dev404.github.io/class-5-2/`
+5. Google도 처음 로그인할 때 계정을 만들므로 "Allow new users to sign up"이 켜져 있어야 함 (사이트를 닫아 둔 동안은 꺼 두기)

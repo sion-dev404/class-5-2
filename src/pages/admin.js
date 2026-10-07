@@ -66,7 +66,7 @@ export async function render(view, ctx) {
               { class: 'item-head' },
               el('strong', {}, p.username),
               el('span', {}, saved.get(p.id) ?? '(이름 없음)'),
-              emails.has(p.id) ? el('span', { class: 'badge later', title: '학교 Google 계정' }, `🏫 ${emails.get(p.id)}`) : null,
+              emails.has(p.id) ? el('span', { class: 'badge later', title: 'Google 계정' }, `✉️ ${emails.get(p.id)}`) : null,
               el('span', { class: 'row-meta' }, `요청 ${formatDateTime(p.created_at)} · 동의 ${p.privacy_agreed_at ? `${formatDateTime(p.privacy_agreed_at)} (${p.privacy_version ?? '-'})` : '기록 없음'}`),
               el('span', { class: 'spacer' }),
               approve,

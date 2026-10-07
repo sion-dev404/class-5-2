@@ -204,8 +204,8 @@ function readOAuthReturn() {
   const params = new URLSearchParams(location.search);
   const description = params.get('error_description') ?? params.get('error');
   if (description) {
-    loginError = /goedu|database error|saving new user/i.test(description)
-      ? '학교 Google 계정(goedu.kr)으로만 로그인할 수 있어요. 학교 계정으로 다시 해 주세요.'
+    loginError = /database error|saving new user/i.test(description)
+      ? 'Google 계정으로 가입하지 못했어요. 이메일이 있는 Google 계정으로 다시 해 주세요.'
       : /signups? not allowed|disabled/i.test(description)
         ? '지금은 새로 가입을 받지 않아요. 선생님께 물어봐 주세요.'
         : `Google 로그인에 실패했어요: ${description}`;
@@ -262,7 +262,7 @@ async function render() {
     return;
   }
 
-  // 학교 Google 계정으로 처음 들어옴: 동의 + 아이디 정하기부터
+  // Google 계정으로 처음 들어옴: 동의 + 아이디 정하기부터
   if (needsOnboarding(user) && route.name !== 'privacy') {
     updateHeader(null, route.name);
     app.replaceChildren(view);
