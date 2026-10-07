@@ -1,5 +1,6 @@
 import { supabase } from './supabase.js';
 import { ID_DOMAIN } from './config.js';
+import { PRIVACY_VERSION } from './privacy.js';
 
 // 아이디: 영어 소문자·숫자·_ 만 (예: s01, redsionkim)
 const USERNAME_PATTERN = /^[a-z0-9_]{2,30}$/;
@@ -12,7 +13,7 @@ export function isValidUsername(username) {
   return USERNAME_PATTERN.test(username);
 }
 
-// 로그인한 사람 정보 { id, username, nickname, role, profileMissing }
+// 로그인한 사람 정보 { id, username, nickname, role, status, profileMissing }
 // undefined = 아직 확인 안 함, null = 로그인 안 됨
 let cachedUser;
 
@@ -33,6 +34,35 @@ export async function signIn(username, password) {
   return { error: null };
 }
 
+// 회원가입 요청: 동의 기록과 이름을 함께 보냄 → DB가 "승인 대기" 계정을 만듦
+export async function signUp(username, password, realName) {
+  const id = normalizeUsername(username);
+  if (!isValidUsername(id)) {
+    return { error: { message: '아이디는 영어 소문자·숫자·_ 로 2~30자로 해 주세요.' } };
+  }
+  cachedUser = undefined;
+  const { data, error } = await supabase.auth.signUp({
+    email: `${id}@${ID_DOMAIN}`,
+    password,
+    options: {
+      data: { real_name: realName, privacy_version: PRIVACY_VERSION, privacy_agreed_at: new Date().toISOString() },
+    },
+  });
+  if (error) {
+    let text = `가입 요청을 보내지 못했어요: ${error.message}`;
+    if (/already registered|already exists/i.test(error.message)) text = '이미 있는 아이디예요. 다른 아이디를 써 주세요.';
+    else if (/signups? not allowed|disabled/i.test(error.message)) text = '지금은 가입을 받지 않아요. 선생님께 물어봐 주세요.';
+    else if (/password/i.test(error.message)) text = '비밀번호가 너무 쉬워요. 8자 이상으로 해 주세요.';
+    else if (/database error/i.test(error.message)) text = '아이디 형식을 확인해 주세요. (영어 소문자·숫자·_ 2~30자)';
+    return { error: { message: text } };
+  }
+  // 같은 아이디가 이미 있으면 Supabase는 오류 대신 빈 계정을 돌려줄 때가 있음
+  if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+    return { error: { message: '이미 있는 아이디예요. 다른 아이디를 써 주세요.' } };
+  }
+  return { error: null, signedIn: !!data?.session };
+}
+
 export async function signOut() {
   cachedUser = null;
   await supabase.auth.signOut();
@@ -49,18 +79,21 @@ export async function getCurrentUser() {
     return cachedUser;
   }
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id, username, nickname, role')
-    .eq('id', session.user.id)
-    .maybeSingle();
+  const query = (columns) => supabase.from('profiles').select(columns).eq('id', session.user.id).maybeSingle();
+  let { data: profile, error } = await query('id, username, nickname, role, status');
+  if (error?.code === '42703') {
+    // 승인 상태 칸이 아직 없으면(SQL 실행 전) 예전처럼
+    ({ data: profile } = await query('id, username, nickname, role'));
+    if (profile) profile.status = 'approved';
+  }
 
   cachedUser = profile ?? {
-    // schema.sql 실행 전에 만든 계정 등: 학생으로 취급
+    // 계정 정보를 읽을 수 없음: 학생으로, 승인 대기로 취급
     id: session.user.id,
     username: session.user.email.split('@')[0],
     nickname: null,
     role: 'student',
+    status: 'pending',
     profileMissing: true,
   };
   return cachedUser;
@@ -72,6 +105,10 @@ export function forgetUser() {
 
 export function isAdmin(user) {
   return user?.role === 'admin';
+}
+
+export function isApproved(user) {
+  return isAdmin(user) || user?.status === 'approved';
 }
 
 // 다른 탭에서 로그아웃했거나 로그인이 만료되었을 때 알려 주기

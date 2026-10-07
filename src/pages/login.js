@@ -36,6 +36,13 @@ export function render(view, ctx) {
     button,
     message('🔒 학교나 공용 컴퓨터에서는 다 쓰고 꼭 로그아웃하세요.', 'warn'),
     message('비밀번호를 잊었으면 선생님께 말씀해 주세요.'),
+    el(
+      'p',
+      { class: 'login-links' },
+      ctx.adminOnly ? null : el('a', { href: '#/signup' }, '처음이에요? 회원가입'),
+      ctx.adminOnly ? null : ' · ',
+      el('a', { href: '#/privacy' }, '개인정보 처리방침'),
+    ),
   );
 
   form.addEventListener('submit', (event) => {

@@ -3,8 +3,14 @@ import { displayName, el, message } from './ui.js';
 import { withRealName } from './realnames.js';
 
 // 우리 반 학생 명단 (role = student 인 계정 전체, 아이디 순서). 계정을 만들거나 지우면 자동 반영
-export function fetchRoster() {
-  return supabase.from('profiles').select('id, username, nickname').eq('role', 'student').order('username');
+// 승인 대기(가입 요청 중)인 계정은 빼고, 승인된 학생만
+export async function fetchRoster() {
+  const result = await supabase.from('profiles').select('id, username, nickname').eq('role', 'student').eq('status', 'approved').order('username');
+  if (result.error?.code === '42703') {
+    // 승인 상태 칸이 아직 없으면(SQL 실행 전) 예전처럼
+    return supabase.from('profiles').select('id, username, nickname').eq('role', 'student').order('username');
+  }
+  return result;
 }
 
 // 참가 현황 칸

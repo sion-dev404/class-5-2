@@ -1,6 +1,6 @@
 import './style.css';
 import { configError, supabase } from './supabase.js';
-import { getCurrentUser, isAdmin, onSignedOut, signOut } from './auth.js';
+import { getCurrentUser, isAdmin, isApproved, onSignedOut, signOut } from './auth.js';
 import { el, message } from './ui.js';
 import * as login from './pages/login.js';
 import * as me from './pages/me.js';
@@ -16,6 +16,8 @@ import * as gallery from './pages/gallery.js';
 import * as points from './pages/points.js';
 import * as seats from './pages/seats.js';
 import * as site from './pages/site.js';
+import * as signup from './pages/signup.js';
+import * as privacy from './pages/privacy.js';
 
 // 주소의 # 뒤 첫 부분 → 페이지 (예: #/board/12 → board, 나머지 ['12']는 params)
 const routes = {
@@ -32,8 +34,13 @@ const routes = {
   points,
   seats,
   site,
+  signup,
+  privacy,
   login,
 };
+
+// 로그인하지 않아도 볼 수 있는 화면
+const PUBLIC_ROUTES = ['login', 'signup', 'privacy'];
 
 // 메뉴: 비슷한 것끼리 한 곳에 모으고, 안에서 탭으로 이동 (캘린더는 홈에 그대로)
 const GROUPS = [
@@ -113,6 +120,69 @@ function tabsFor(route) {
   );
 }
 
+// 처음 들어올 때(브라우저를 새로 열 때마다) 보여 주는 경고
+function showWarning() {
+  try {
+    if (sessionStorage.getItem('warning-ok') === '1') return;
+  } catch {
+    // 저장이 안 되는 브라우저면 매번 보여 줌
+  }
+  const ok = el('button', { type: 'button', class: 'big' }, '확인했어요');
+  const box = el(
+    'div',
+    { class: 'warning-overlay', role: 'alertdialog', 'aria-modal': 'true', 'aria-labelledby': 'warning-title' },
+    el(
+      'div',
+      { class: 'warning-box' },
+      el('div', { class: 'warning-icon', 'aria-hidden': 'true' }, '⚠️'),
+      el('h2', { id: 'warning-title' }, '경고'),
+      el('p', {}, '이 누리집은 접속하는 사람의 ', el('strong', {}, 'IP 주소를 기록'), '하고 있어요.'),
+      el('p', {}, el('strong', {}, '다른 사람에게 피해를 주는 일은 절대 하지 마세요.'), ' 다른 사람의 아이디로 로그인하기, 친구를 괴롭히는 글·댓글 쓰기도 안 돼요.'),
+      el('p', { class: 'row-meta' }, '문제가 생기면 기록으로 확인해요.'),
+      ok,
+    ),
+  );
+  ok.addEventListener('click', () => {
+    try {
+      sessionStorage.setItem('warning-ok', '1');
+    } catch {
+      // 무시
+    }
+    box.remove();
+  });
+  document.body.append(box);
+  ok.focus();
+}
+
+// 로그인한 사람의 접속 기록 (브라우저를 열 때마다 한 번)
+async function logVisit(user) {
+  const key = `visit-${user.id}`;
+  try {
+    if (sessionStorage.getItem(key)) return;
+    sessionStorage.setItem(key, '1');
+  } catch {
+    // 저장이 안 되면 그냥 기록
+  }
+  await supabase.rpc('log_visit');
+}
+
+// 가입 요청 후 선생님 승인을 기다리는 화면
+function pendingPage(view, user) {
+  document.title = '승인 대기 · 5학년 2반';
+  view.append(
+    el(
+      'section',
+      { class: 'card closed-page' },
+      el('div', { class: 'closed-icon', 'aria-hidden': 'true' }, '⏳'),
+      el('h1', {}, '승인을 기다리고 있어요'),
+      el('p', {}, `${user.username} 계정의 가입 요청을 선생님께 보냈어요. 선생님이 승인하면 누리집을 쓸 수 있어요.`),
+      el('p', { class: 'row-meta' }, '승인되면 이 화면을 새로고침해 보세요.'),
+      el('div', { class: 'actions center' }, el('button', { type: 'button', class: 'secondary', onclick: () => location.reload() }, '새로고침'), el('button', { type: 'button', class: 'secondary', onclick: async () => { await signOut(); location.hash = '#/login'; } }, '로그아웃')),
+    ),
+    el('p', { class: 'closed-admin' }, el('a', { href: '#/privacy' }, '개인정보 처리방침')),
+  );
+}
+
 // 학생에게 보이는 "사이트 폐쇄" 화면
 function closedPage(view, text) {
   document.title = '사이트 폐쇄 · 5학년 2반';
@@ -145,9 +215,12 @@ async function render() {
     }
     updateHeader(null, route.name);
     app.replaceChildren(view);
-    if (route.name === 'login' && route.query.get('admin') === '1') {
+    if (route.name === 'privacy') {
+      document.title = `${privacy.title} · 5학년 2반`;
+      privacy.render(view);
+    } else if (route.name === 'login' && route.query.get('admin') === '1') {
       document.title = '선생님 로그인 · 5학년 2반';
-      await login.render(view, { query: route.query, params: [], afterLogin: () => (location.hash = '#/') });
+      await login.render(view, { query: route.query, params: [], adminOnly: true, afterLogin: () => (location.hash = '#/') });
       view.prepend(message('선생님(관리자) 계정만 로그인할 수 있어요. 학생 계정은 사이트가 닫혀 있어 들어갈 수 없어요.', 'warn'));
       view.append(el('p', { class: 'closed-admin' }, el('a', { href: '#/login' }, '← 돌아가기')));
     } else {
@@ -162,16 +235,26 @@ async function render() {
   }
 
   // 로그인 안 했으면 무조건 로그인 화면, 로그인했으면 로그인 화면 대신 홈
-  if (!user && route.name !== 'login') {
+  if (!user && !PUBLIC_ROUTES.includes(route.name)) {
     location.replace('#/login');
     return;
   }
-  if (user && route.name === 'login') {
+  if (user && (route.name === 'login' || (route.name === 'signup' && !adminUser))) {
     location.replace('#/');
     return;
   }
 
-  updateHeader(user, route.name);
+  // 승인 대기 학생: 승인 화면만 (개인정보 처리방침은 볼 수 있음)
+  if (user && !isApproved(user) && route.name !== 'privacy') {
+    updateHeader(null, route.name);
+    app.replaceChildren(view);
+    logVisit(user);
+    pendingPage(view, user);
+    return;
+  }
+  if (user) logVisit(user);
+
+  updateHeader(isApproved(user) ? user : null, route.name);
   app.replaceChildren(view);
 
   const page = routes[route.name];
@@ -187,6 +270,7 @@ async function render() {
   document.title = `${page.title} · 5학년 2반`;
   const ctx = {
     user,
+    preview: route.name === 'signup' && adminUser,
     params: route.params,
     query: route.query,
     refresh: render,
@@ -206,6 +290,7 @@ if (configError) {
   notice.append(message(configError, 'error'));
 } else {
   if (!location.hash) history.replaceState(null, '', '#/');
+  showWarning();
   window.addEventListener('hashchange', render);
   onSignedOut(() => {
     if (parseHash().name !== 'login') location.hash = '#/login';

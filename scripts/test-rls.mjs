@@ -9,13 +9,14 @@ const db = new PGlite();
 const schema = readFileSync(new URL('../supabase/schema.sql', import.meta.url), 'utf8');
 const makeAdmin = readFileSync(new URL('../supabase/make-admin.sql', import.meta.url), 'utf8');
 const emergency = readFileSync(new URL('../supabase/emergency-close.sql', import.meta.url), 'utf8');
+const resetStudents = readFileSync(new URL('../supabase/reset-students.sql', import.meta.url), 'utf8');
 
 // Supabase 흉내: 역할, auth 스키마, auth.uid()
 await db.exec(`
   create role anon nologin;
   create role authenticated nologin;
   create schema auth;
-  create table auth.users (id uuid primary key default gen_random_uuid(), email text);
+  create table auth.users (id uuid primary key default gen_random_uuid(), email text, raw_user_meta_data jsonb default '{}'::jsonb);
   create table auth.sessions (id uuid primary key default gen_random_uuid(), user_id uuid, ip text, user_agent text, created_at timestamptz default now(), updated_at timestamptz default now());
   create function auth.uid() returns uuid language sql stable as
     $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
@@ -46,6 +47,9 @@ await db.exec(makeAdmin);
 // schema.sql 은 사이트를 "닫힌 상태"로 만든다 → 기능 실험을 위해 먼저 연다 (닫힘 실험은 맨 끝에)
 const firstClosed = (await db.query('select closed from public.site_settings where id = 1')).rows[0]?.closed;
 await db.exec('update public.site_settings set closed = false where id = 1');
+// 새로 만든 계정은 '승인 대기' → 기능 실험용 학생 2명은 승인해 둔다 (가입·승인 실험은 뒤에서)
+const firstStatus = (await db.query(`select status from public.profiles where username = 's01'`)).rows[0]?.status;
+await db.exec(`update public.profiles set status = 'approved' where username in ('s01', 's02')`);
 
 const ids = Object.fromEntries(
   (await db.query(`select username, id from public.profiles`)).rows.map((r) => [r.username, r.id]),
@@ -525,6 +529,55 @@ await as('redsionkim', `delete from public.lessons where id=${photoLesson}`);
 r = await db.query(`select count(*)::int as n from public.content_files where lesson_id=${photoLesson}`);
 check('수업 삭제 시 자료 기록도 삭제', r.rows[0].n === 0, r.rows);
 
+// ---- 회원가입·승인 ----
+check('새로 만든 계정은 승인 대기(pending)', firstStatus === 'pending', firstStatus);
+await db.exec(`insert into auth.users (email, raw_user_meta_data) values ('newkid@class52.local', '{"real_name":"이새봄","privacy_version":"2026-10-07","privacy_agreed_at":"2026-10-07T09:00:00Z"}')`);
+r = await db.query(`select id, status, privacy_version, privacy_agreed_at from public.profiles where username = 'newkid'`);
+check('가입 → profiles 승인 대기 + 동의 기록', r.rows[0]?.status === 'pending' && r.rows[0].privacy_version === '2026-10-07' && !!r.rows[0].privacy_agreed_at, r.rows);
+ids.newkid = r.rows[0].id;
+r = await db.query(`select real_name from public.student_names where user_id = '${ids.newkid}'`);
+check('가입할 때 쓴 이름 → 선생님만 보는 실명 표', r.rows[0]?.real_name === '이새봄', r.rows);
+r = await db.query(`insert into auth.users (email) values ('someone@gmail.com')`).catch((e) => ({ error: e.message }));
+check('우리 반 형식이 아닌 이메일 가입 거부', !!r.error, r);
+r = await db.query(`insert into auth.users (email) values ('Bad-Name!@class52.local')`).catch((e) => ({ error: e.message }));
+check('이상한 아이디 가입 거부', !!r.error, r);
+
+r = await as('newkid', `select username, status from public.profiles`);
+check('승인 대기: 자기 줄만 보임', r.rows?.length === 1 && r.rows[0].status === 'pending', r);
+r = await as('newkid', `select count(*)::int as n from public.homework`);
+check('승인 대기: 숙제 0건', !r.error && r.rows[0].n === 0, r);
+r = await as('newkid', `insert into public.posts (title, content) values ('몰래', '써짐?')`);
+check('승인 대기: 글쓰기 거부', !!r.error, r);
+r = await as('newkid', `update public.profiles set status = 'approved' where id = '${ids.newkid}'`);
+check('승인 대기: 스스로 승인 거부', !!r.error, r);
+r = await as('newkid', `select public.set_member_status('${ids.newkid}', 'approved')`);
+check('학생: 승인 함수 거부', !!r.error, r);
+r = await as('redsionkim', `select username, status from public.profiles where status = 'pending'`);
+check('관리자: 가입 요청 목록', r.rows?.some((row) => row.username === 'newkid'), r);
+r = await as('redsionkim', `select public.set_member_status('${ids.newkid}', 'approved')`);
+check('관리자: 승인', !r.error, r);
+r = await as('newkid', `select count(*)::int as n from public.homework`);
+check('승인 후: 숙제 보임', !r.error && r.rows[0].n >= 1, r);
+r = await as('newkid', `select public.remove_member('${ids.s02}')`);
+check('학생: 계정 삭제 거부', !!r.error, r);
+r = await as('redsionkim', `select public.remove_member('${ids.redsionkim}')`);
+check('관리자 계정은 삭제 불가', !!r.error, r);
+r = await as('redsionkim', `select public.remove_member('${ids.newkid}')`);
+r = await db.query(`select (select count(*) from auth.users where id = '${ids.newkid}')::int as u, (select count(*) from public.student_names where user_id = '${ids.newkid}')::int as n`);
+check('관리자: 계정 삭제(거절) → 계정·실명 함께 삭제', r.rows[0].u === 0 && r.rows[0].n === 0, r.rows);
+
+// ---- 접속 기록 ----
+r = await as('s02', `select public.log_visit()`);
+check('접속 기록 남기기', !r.error, r);
+r = await as('s02', `select * from public.access_logs`);
+check('학생: 접속 기록 읽기 0건', !r.error && r.rows.length === 0, r);
+r = await as('s02', `insert into public.access_logs (user_id, ip) values ('${ids.redsionkim}', '1.1.1.1')`);
+check('학생: 접속 기록 직접 쓰기 거부', !!r.error, r);
+r = await as('redsionkim', `select user_id from public.access_logs`);
+check('관리자: 접속 기록 보기', r.rows?.some((row) => row.user_id === ids.s02), r);
+r = await as('anon', `select public.log_visit()`);
+check('비로그인: 접속 기록 함수 거부', !!r.error, r);
+
 // ---- 사이트 닫힘 (계정 도용 대응) ----
 check('schema.sql 실행 직후 사이트는 닫힌 상태', firstClosed === true, firstClosed);
 r = await as('anon', `select closed, notice from public.site_settings`);
@@ -534,7 +587,9 @@ check('학생: 사이트 닫기 0건', !r.error && r.affected === 0, r);
 r = await as('redsionkim', `update public.site_settings set closed = true, updated_at = now() where id = 1`);
 check('관리자: 사이트 닫기', !r.error && r.affected === 1, r);
 
-for (const table of ['posts', 'comments', 'lessons', 'homework', 'meals', 'events', 'quizzes', 'topics', 'profiles', 'content_files']) {
+r = await as('s02', `select username from public.profiles`);
+check('닫힘: 학생은 profiles에서 자기 줄만', r.rows?.length === 1 && r.rows[0].username === 's02', r);
+for (const table of ['posts', 'comments', 'lessons', 'homework', 'meals', 'events', 'quizzes', 'topics', 'content_files']) {
   r = await as('s02', `select count(*)::int as n from public.${table}`);
   check(`닫힘: 학생 ${table} 읽기 0건`, !r.error && r.rows[0].n === 0, r);
 }
@@ -583,6 +638,19 @@ r = await as('redsionkim', `select public.sign_out_students() as n`);
 check('관리자: 학생 로그인 끊기 (1개)', !r.error && r.rows[0].n === 1, r);
 r = await db.query(`select count(*)::int as n from auth.sessions where user_id='${ids.s02}'`);
 check('학생 세션 남지 않음', r.rows[0].n === 0, r.rows);
+
+// ---- 관리자 외 계정 모두 지우기 (reset-students.sql) ----
+await db.exec('begin');
+await db.exec(`update public.profiles set role = 'student'`);
+r = await db.exec(resetStudents).then(() => ({})).catch((e) => ({ error: e.message }));
+check('계정 지우기: 관리자가 없으면 멈춤', !!r.error && r.error.includes('관리자'), r);
+await db.exec('rollback');
+await db.exec(resetStudents);
+r = await db.query(`select username, role from public.profiles order by username`);
+check('계정 지우기: 관리자만 남음', r.rows.length >= 1 && r.rows.every((row) => row.role === 'admin'), r.rows);
+r = await db.query(`select count(*)::int as n from auth.users`);
+const adminCount = (await db.query(`select count(*)::int as n from public.profiles where role = 'admin'`)).rows[0].n;
+check('계정 지우기: auth 계정도 관리자만', r.rows[0].n === adminCount, r.rows);
 
 console.log(`\n${pass} 통과 / ${fail} 실패`);
 process.exit(fail ? 1 : 0);

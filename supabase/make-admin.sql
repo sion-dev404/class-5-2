@@ -7,7 +7,7 @@
 
 -- 1) 두 계정을 관리자(admin)로 바꾸기
 update public.profiles
-set role = 'admin'
+set role = 'admin', status = 'approved'
 where username in ('redsionkim', 'teacher0502');
 
 -- 2) 혹시 다른 계정이 관리자로 되어 있으면 학생으로 되돌리기
@@ -18,6 +18,6 @@ where username not in ('redsionkim', 'teacher0502')
 
 -- 3) 결과 확인 : 관리자 2명이 맨 위, 그 아래 학생들
 --    학생 수가 우리 반 인원(24명)과 같으면 정상입니다.
-select username as 아이디, role as 역할, nickname as 별명
+select username as 아이디, role as 역할, status as 상태, nickname as 별명
 from public.profiles
 order by role, username;

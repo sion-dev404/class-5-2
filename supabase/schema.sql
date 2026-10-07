@@ -20,6 +20,14 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now()
 );
 
+-- 회원가입 승인 상태: pending = 승인 대기(아무것도 못 봄), approved = 승인됨
+--   (이 칸을 처음 만들 때 이미 있던 계정은 approved, 그 뒤 새로 가입하는 계정은 pending)
+alter table public.profiles add column if not exists status text not null default 'approved' check (status in ('pending', 'approved'));
+alter table public.profiles alter column status set default 'pending';
+-- 개인정보 동의 기록 (언제, 어느 판(버전)에 동의했는지)
+alter table public.profiles add column if not exists privacy_agreed_at timestamptz;
+alter table public.profiles add column if not exists privacy_version text;
+
 
 -- ---------------------------------------------------------------------
 -- 2. 새 계정이 생기면 profiles에 자동으로 한 줄 만들기 (처음엔 모두 학생)
@@ -31,10 +39,31 @@ language plpgsql
 security definer
 set search_path = ''
 as $$
+declare
+  v_username text := lower(split_part(coalesce(new.email, ''), '@', 1));
+  v_real_name text := nullif(trim(coalesce(new.raw_user_meta_data ->> 'real_name', '')), '');
+  v_agreed_at timestamptz;
 begin
-  insert into public.profiles (id, username)
-  values (new.id, split_part(new.email, '@', 1))
+  -- 우리 반 형식(아이디@class52.local)이 아닌 가입은 막음
+  if coalesce(new.email, '') not like '%@class52.local' or v_username !~ '^[a-z0-9_]{2,30}$' then
+    raise exception '아이디는 영어 소문자·숫자·_ 2~30자로 해 주세요.';
+  end if;
+  begin
+    v_agreed_at := (new.raw_user_meta_data ->> 'privacy_agreed_at')::timestamptz;
+  exception when others then
+    v_agreed_at := null;
+  end;
+
+  insert into public.profiles (id, username, privacy_agreed_at, privacy_version)
+  values (new.id, v_username, v_agreed_at, left(new.raw_user_meta_data ->> 'privacy_version', 30))
   on conflict (id) do nothing;
+
+  -- 가입할 때 쓴 이름은 선생님만 보는 실명 표에 (승인할 때 누구인지 확인용)
+  if v_real_name is not null then
+    insert into public.student_names (user_id, real_name)
+    values (new.id, left(v_real_name, 20))
+    on conflict (user_id) do nothing;
+  end if;
   return new;
 end;
 $$;
@@ -96,6 +125,34 @@ $$;
 
 revoke execute on function public.site_open() from public;
 grant execute on function public.site_open() to anon, authenticated;
+
+-- 승인된 계정인가? (회원가입 후 선생님이 승인해야 true)
+create or replace function public.is_approved()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.profiles
+    where id = (select auth.uid()) and status = 'approved'
+  );
+$$;
+
+-- 지금 이 사람이 누리집 자료를 쓸 수 있나? = 선생님이거나, (사이트가 열려 있고 + 승인된 학생)
+create or replace function public.can_use()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select public.is_admin() or (public.site_open() and public.is_approved());
+$$;
+
+revoke execute on function public.is_approved(), public.can_use() from public, anon;
+grant execute on function public.is_approved(), public.can_use() to authenticated;
 
 -- 학생 로그인 모두 끊기 (선생님만). 끊긴 학생은 다시 로그인해야 함
 create or replace function public.sign_out_students()
@@ -436,6 +493,21 @@ alter table public.meals add constraint meals_menu_check check (menu is null or 
 
 
 -- ---------------------------------------------------------------------
+-- 6-14. access_logs : 접속 기록 (누가, 언제, 어느 IP에서) — 선생님만 봄, 1년 지나면 자동 삭제
+--       기록은 log_visit 함수만 (학생이 직접 쓰거나 지울 수 없음)
+-- ---------------------------------------------------------------------
+create table if not exists public.access_logs (
+  id         bigint generated always as identity primary key,
+  user_id    uuid references public.profiles (id) on delete cascade,
+  ip         text,
+  user_agent text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists access_logs_created_idx on public.access_logs (created_at desc);
+
+
+-- ---------------------------------------------------------------------
 -- 6-4. student_names : 학생 실명 (관리용)
 --      관리자(선생님)만 읽고 쓸 수 있습니다. 학생은 친구 실명을 볼 수 없습니다.
 --      (profiles와 따로 둔 이유: profiles는 반 전체가 읽을 수 있기 때문)
@@ -522,6 +594,10 @@ grant select, insert, update, delete on public.jobs, public.job_assignments, pub
 revoke all on public.seat_rules, public.seat_draws from anon, authenticated;
 grant select, insert, update, delete on public.seat_rules, public.seat_draws to authenticated;
 
+-- access_logs : 선생님만 읽고 지우기 (아래 RLS). 기록은 log_visit 함수만
+revoke all on public.access_logs from anon, authenticated;
+grant select, delete on public.access_logs to authenticated;
+
 -- content_files : 읽기는 로그인한 사람, 쓰기는 아래 RLS가 관리자만
 revoke all on public.content_files from anon, authenticated;
 grant select, insert, delete on public.content_files to authenticated;
@@ -575,6 +651,7 @@ alter table public.seat_rules enable row level security;
 alter table public.seat_draws enable row level security;
 alter table public.content_files enable row level security;
 alter table public.site_settings enable row level security;
+alter table public.access_logs enable row level security;
 
 -- ---- profiles ----
 drop policy if exists "profiles: 로그인하면 읽기" on public.profiles;
@@ -840,6 +917,12 @@ create policy "content_files: 관리자만 쓰고 지우기" on public.content_f
   for all to authenticated
   using ((select public.is_admin())) with check ((select public.is_admin()));
 
+-- ---- access_logs : 선생님만 읽고 지우기 ----
+drop policy if exists "access_logs: 관리자만" on public.access_logs;
+create policy "access_logs: 관리자만" on public.access_logs
+  for all to authenticated
+  using ((select public.is_admin())) with check ((select public.is_admin()));
+
 -- ---- site_settings : 누구나 읽기(닫힘 화면용), 관리자만 바꾸기 ----
 drop policy if exists "site_settings: 누구나 읽기" on public.site_settings;
 create policy "site_settings: 누구나 읽기" on public.site_settings
@@ -923,36 +1006,44 @@ create policy "attachments: 올린 사람 또는 관리자만 지우기" on stor
 
 
 -- =====================================================================
--- 9-2. 닫힘 잠금 : 사이트가 닫히면(site_settings.closed) 학생은 모든 표와 파일에 접근 불가
+-- 9-2. 이용 잠금 : 선생님이거나, (사이트가 열려 있고 + 승인된 학생)만 모든 표와 파일 사용
+--      → 사이트가 닫히면(site_settings.closed) 학생은 전부 막힘
+--      → 회원가입 후 승인 대기(pending)인 학생도 전부 막힘 (자기 profiles 줄만 볼 수 있음)
 --      "restrictive"(추가 잠금) 규칙이라 위의 다른 규칙을 통과해도 여기서 한 번 더 막힘.
---      선생님(관리자)은 통과.
 -- =====================================================================
 do $$
 declare
   t text;
 begin
   foreach t in array array[
-    'profiles', 'posts', 'lessons', 'homework', 'meals', 'post_files', 'comments', 'topics',
+    'posts', 'lessons', 'homework', 'meals', 'post_files', 'comments', 'topics',
     'quizzes', 'quiz_questions', 'quiz_keys', 'quiz_attempts', 'quiz_starts', 'live_answers',
     'post_likes', 'jobs', 'job_assignments', 'job_checks', 'events', 'points',
-    'seat_rules', 'seat_draws', 'content_files', 'student_names'
+    'seat_rules', 'seat_draws', 'content_files', 'student_names', 'access_logs'
   ] loop
     execute format('drop policy if exists "닫힘 잠금" on public.%I', t);
     execute format(
       'create policy "닫힘 잠금" on public.%I as restrictive for all to authenticated '
-      'using ((select public.site_open()) or (select public.is_admin())) '
-      'with check ((select public.site_open()) or (select public.is_admin()))',
+      'using ((select public.can_use())) '
+      'with check ((select public.can_use()))',
       t
     );
   end loop;
 end;
 $$;
 
+-- profiles: 승인 대기 학생도 자기 줄(승인 상태 확인용)은 볼 수 있음
+drop policy if exists "닫힘 잠금" on public.profiles;
+create policy "닫힘 잠금" on public.profiles
+  as restrictive for all to authenticated
+  using ((select public.can_use()) or id = (select auth.uid()))
+  with check ((select public.can_use()) or id = (select auth.uid()));
+
 drop policy if exists "attachments: 닫힘 잠금" on storage.objects;
 create policy "attachments: 닫힘 잠금" on storage.objects
   as restrictive for all to authenticated
-  using (bucket_id <> 'attachments' or (select public.site_open()) or (select public.is_admin()))
-  with check (bucket_id <> 'attachments' or (select public.site_open()) or (select public.is_admin()));
+  using (bucket_id <> 'attachments' or (select public.can_use()))
+  with check (bucket_id <> 'attachments' or (select public.can_use()));
 
 
 -- =====================================================================
@@ -984,7 +1075,7 @@ begin
   if v_uid is null then
     raise exception '로그인이 필요해요.';
   end if;
-  if not (public.site_open() or public.is_admin()) then
+  if not public.can_use() then
     raise exception '사이트가 닫혀 있어요.';
   end if;
   select time_limit_sec into v_limit from public.quizzes where id = p_quiz_id and is_open and mode = 'self';
@@ -1024,7 +1115,7 @@ begin
   if v_uid is null then
     raise exception '로그인이 필요해요.';
   end if;
-  if not (public.site_open() or public.is_admin()) then
+  if not public.can_use() then
     raise exception '사이트가 닫혀 있어요.';
   end if;
   if not exists (select 1 from public.quizzes where id = p_quiz_id and is_open and mode = 'self') then
@@ -1086,7 +1177,7 @@ as $$
   from public.quiz_keys k
   join public.quiz_questions qq on qq.id = k.question_id
   where qq.quiz_id = p_quiz_id
-    and ((select public.site_open()) or (select public.is_admin()))
+    and ((select public.can_use()))
     and (
       exists (select 1 from public.quiz_attempts a where a.quiz_id = p_quiz_id and a.user_id = (select auth.uid()))
       or (select public.is_admin())
@@ -1103,7 +1194,7 @@ set search_path = ''
 as $$
   select a.user_id, a.created_at
   from public.quiz_attempts a
-  where a.quiz_id = p_quiz_id and (select auth.uid()) is not null and ((select public.site_open()) or (select public.is_admin()));
+  where a.quiz_id = p_quiz_id and (select auth.uid()) is not null and ((select public.can_use()));
 $$;
 
 -- 빨리 푼 순위: 만점을 받은 사람만, 걸린 시간 순 (점수는 안 알려 줌). 로그인한 사람 누구나
@@ -1119,7 +1210,7 @@ as $$
   where a.quiz_id = p_quiz_id
     and a.score = a.total
     and a.elapsed_ms is not null
-    and (select auth.uid()) is not null and ((select public.site_open()) or (select public.is_admin()))
+    and (select auth.uid()) is not null and ((select public.can_use()))
   order by a.elapsed_ms;
 $$;
 
@@ -1177,7 +1268,7 @@ as $$
     'total', (select count(*) from public.quiz_questions qq where qq.quiz_id = q.id)
   )
   from public.quizzes q
-  where q.id = p_quiz_id and q.mode = 'live' and (select auth.uid()) is not null and ((select public.site_open()) or (select public.is_admin()));
+  where q.id = p_quiz_id and q.mode = 'live' and (select auth.uid()) is not null and ((select public.can_use()));
 $$;
 
 create or replace function public.answer_live(p_question_id bigint, p_answer text)
@@ -1198,7 +1289,7 @@ begin
   if v_uid is null then
     raise exception '로그인이 필요해요.';
   end if;
-  if not (public.site_open() or public.is_admin()) then
+  if not public.can_use() then
     raise exception '사이트가 닫혀 있어요.';
   end if;
   select q.* into v_quiz
@@ -1254,6 +1345,75 @@ $$;
 
 
 -- =====================================================================
+-- 10-3. 회원 관리와 접속 기록
+--   set_member_status : 선생님이 가입 요청 승인 (pending → approved) 또는 승인 취소
+--   remove_member     : 선생님이 학생 계정 삭제 (가입 거절도 이것으로). 관리자 계정은 못 지움
+--   log_visit         : 로그인한 사람의 접속 기록 (IP는 서버가 받은 요청 정보에서 읽음)
+-- =====================================================================
+create or replace function public.set_member_status(p_user_id uuid, p_status text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '선생님만 할 수 있어요.';
+  end if;
+  if p_status not in ('pending', 'approved') then
+    raise exception '알 수 없는 상태예요.';
+  end if;
+  update public.profiles set status = p_status where id = p_user_id and role = 'student';
+end;
+$$;
+
+create or replace function public.remove_member(p_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '선생님만 할 수 있어요.';
+  end if;
+  if exists (select 1 from public.profiles where id = p_user_id and role = 'admin') then
+    raise exception '관리자 계정은 지울 수 없어요.';
+  end if;
+  delete from auth.users where id = p_user_id; -- profiles·글·댓글 등도 함께 지워짐
+end;
+$$;
+
+create or replace function public.log_visit()
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_headers json;
+  v_ip text;
+begin
+  if auth.uid() is null then
+    return;
+  end if;
+  begin
+    v_headers := nullif(current_setting('request.headers', true), '')::json;
+  exception when others then
+    v_headers := null;
+  end;
+  v_ip := coalesce(v_headers ->> 'cf-connecting-ip', trim(split_part(v_headers ->> 'x-forwarded-for', ',', 1)), v_headers ->> 'x-real-ip');
+  insert into public.access_logs (user_id, ip, user_agent)
+  values (auth.uid(), left(nullif(v_ip, ''), 64), left(v_headers ->> 'user-agent', 300));
+  delete from public.access_logs where created_at < now() - interval '1 year';
+end;
+$$;
+
+revoke execute on function public.set_member_status(uuid, text), public.remove_member(uuid), public.log_visit() from public, anon;
+grant execute on function public.set_member_status(uuid, text), public.remove_member(uuid), public.log_visit() to authenticated;
+
+
+-- =====================================================================
 -- 11. 순위 함수 : 학생에게는 "등수"만 알려 줌 (점수 숫자는 안 알려 줌)
 --     같은 점수는 같은 등수. 점수 기록이 없는 학생은 0점으로 계산
 -- =====================================================================
@@ -1267,7 +1427,7 @@ as $$
   select p.id, rank() over (order by coalesce(sum(pt.points), 0) desc)
   from public.profiles p
   left join public.points pt on pt.user_id = p.id
-  where p.role = 'student' and (select auth.uid()) is not null and ((select public.site_open()) or (select public.is_admin()))
+  where p.role = 'student' and p.status = 'approved' and (select auth.uid()) is not null and ((select public.can_use()))
   group by p.id;
 $$;
 
