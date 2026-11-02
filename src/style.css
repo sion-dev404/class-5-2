@@ -1823,3 +1823,54 @@ button.google-button:hover {
 .center-text {
   text-align: center;
 }
+
+/* ---------- 학생 관리: 학생별 접속 기록 차트 ---------- */
+
+.visit-item {
+  border-bottom: 1px solid var(--border);
+}
+
+.visit-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 1.2fr) 2fr auto;
+  align-items: center;
+  gap: 4px 12px;
+  width: 100%;
+  padding: 10px 4px;
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: 0;
+  border-radius: 0;
+  font: inherit;
+}
+
+.visit-row:hover {
+  background: var(--bg);
+}
+
+.visit-name {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.visit-bar {
+  height: 10px;
+  background: var(--bg);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.visit-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+}
+
+.visit-last {
+  grid-column: 1 / -1;
+}
+
+.visit-detail {
+  padding: 0 4px 12px;
+}

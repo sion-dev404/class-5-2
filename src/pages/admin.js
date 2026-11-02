@@ -22,7 +22,7 @@ export async function render(view, ctx) {
   const [{ data: profiles, error }, { data: names, error: namesError }, { data: logs, error: logsError }] = await Promise.all([
     supabase.from('profiles').select('id, username, nickname, role, status, privacy_agreed_at, privacy_version, created_at').order('username'),
     supabase.from('student_names').select('user_id, real_name, email'),
-    supabase.from('access_logs').select('user_id, ip, user_agent, created_at').order('created_at', { ascending: false }).limit(100),
+    supabase.from('access_logs').select('user_id, ip, created_at').order('created_at', { ascending: false }).limit(1000),
   ]);
   if (error || namesError) {
     box.replaceChildren(errorBox(error ?? namesError));
@@ -136,40 +136,77 @@ export async function render(view, ctx) {
     students.length ? el('div', { class: 'actions' }, saveButton) : null,
   );
 
-  // ---------- 접속 기록 ----------
-  const logSection = el(
-    'section',
-    { class: 'card' },
-    el('h2', {}, '접속 기록 (최근 100개, 1년 지나면 자동 삭제)'),
-    logsError
-      ? errorBox(logsError)
-      : logs.length
-        ? el(
-            'div',
-            { class: 'table-wrap' },
-            el(
-              'table',
-              { class: 'rank-table log-table' },
-              el('thead', {}, el('tr', {}, el('th', {}, '시각'), el('th', {}, '아이디'), el('th', {}, 'IP 주소'), el('th', {}, '브라우저'))),
+  // ---------- 학생별 접속 기록 차트 (학생을 누르면 그 학생의 기록 100개) ----------
+  const perUser = new Map();
+  for (const log of logs ?? []) {
+    const row = perUser.get(log.user_id);
+    if (row) row.count += 1;
+    else perUser.set(log.user_id, { count: 1, last: log.created_at, ip: log.ip });
+  }
+  const maxCount = Math.max(1, ...[...perUser.values()].map((row) => row.count));
+
+  const logSection = el('section', { class: 'card' }, el('h2', {}, '학생별 접속 기록 (이름을 누르면 100개까지, 1년 지나면 자동 삭제)'));
+  if (logsError) {
+    logSection.append(errorBox(logsError));
+  } else if (perUser.size === 0) {
+    logSection.append(message('아직 접속 기록이 없어요.'));
+  } else {
+    logSection.append(
+      el('p', { class: 'row-meta' }, '막대는 최근 1000번 접속 중 그 학생의 접속 횟수예요.'),
+      el(
+        'div',
+        { class: 'visit-chart' },
+        [...perUser].map(([userId, row]) => {
+          const p = byId.get(userId);
+          const label = p ? `${p.username}${saved.get(p.id) ? ` · ${saved.get(p.id)}` : ''}` : '(지운 계정)';
+          const detail = el('div', { class: 'visit-detail', hidden: true });
+          const head = el(
+            'button',
+            { type: 'button', class: 'visit-row', 'aria-expanded': 'false' },
+            el('span', { class: 'visit-name' }, label),
+            el('span', { class: 'visit-bar' }, el('span', { style: `width:${Math.round((row.count / maxCount) * 100)}%` })),
+            el('span', { class: 'visit-count' }, `${row.count}번`),
+            el('span', { class: 'row-meta visit-last' }, `${formatDateTime(row.last)} · ${row.ip ?? 'IP 없음'}`),
+          );
+          let loaded = false;
+          head.addEventListener('click', async () => {
+            const open = detail.hidden;
+            detail.hidden = !open;
+            head.setAttribute('aria-expanded', String(open));
+            if (!open || loaded) return;
+            detail.replaceChildren(loading());
+            const { data, error: detailError } = await supabase
+              .from('access_logs')
+              .select('ip, user_agent, created_at')
+              .eq('user_id', userId)
+              .order('created_at', { ascending: false })
+              .limit(100);
+            if (detailError) return detail.replaceChildren(errorBox(detailError));
+            loaded = true;
+            detail.replaceChildren(
               el(
-                'tbody',
-                {},
-                logs.map((log) => {
-                  const p = byId.get(log.user_id);
-                  return el(
-                    'tr',
+                'div',
+                { class: 'table-wrap' },
+                el(
+                  'table',
+                  { class: 'rank-table log-table' },
+                  el('thead', {}, el('tr', {}, el('th', {}, '시각'), el('th', {}, 'IP 주소'), el('th', {}, '브라우저'))),
+                  el(
+                    'tbody',
                     {},
-                    el('td', {}, formatDateTime(log.created_at)),
-                    el('td', {}, p ? `${p.username}${saved.get(p.id) ? ` · ${saved.get(p.id)}` : ''}` : '(지운 계정)'),
-                    el('td', {}, log.ip ?? '-'),
-                    el('td', { class: 'row-meta' }, (log.user_agent ?? '-').slice(0, 60)),
-                  );
-                }),
+                    data.map((log) =>
+                      el('tr', {}, el('td', {}, formatDateTime(log.created_at)), el('td', {}, log.ip ?? '-'), el('td', { class: 'row-meta' }, (log.user_agent ?? '-').slice(0, 60))),
+                    ),
+                  ),
+                ),
               ),
-            ),
-          )
-        : message('아직 접속 기록이 없어요.'),
-  );
+            );
+          });
+          return el('div', { class: 'visit-item' }, head, detail);
+        }),
+      ),
+    );
+  }
 
   box.replaceChildren(requests, status, members, logSection);
 }
