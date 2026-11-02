@@ -22,7 +22,7 @@ export async function render(view, ctx) {
   const [{ data: profiles, error }, { data: names, error: namesError }, { data: logs, error: logsError }] = await Promise.all([
     supabase.from('profiles').select('id, username, nickname, role, status, privacy_agreed_at, privacy_version, created_at').order('username'),
     supabase.from('student_names').select('user_id, real_name, email'),
-    supabase.from('access_logs').select('user_id, user_agent, created_at').order('created_at', { ascending: false }).limit(500),
+    supabase.from('access_logs').select('user_id, ip, user_agent, created_at').order('created_at', { ascending: false }).limit(100),
   ]);
   if (error || namesError) {
     box.replaceChildren(errorBox(error ?? namesError));
@@ -136,39 +136,33 @@ export async function render(view, ctx) {
     students.length ? el('div', { class: 'actions' }, saveButton) : null,
   );
 
-  // ---------- 접속 기록 (IP 없이, 계정별로 묶어서) ----------
-  const perUser = new Map();
-  for (const log of logs ?? []) {
-    const row = perUser.get(log.user_id) ?? { count: 0, last: log.created_at, agent: log.user_agent };
-    row.count += 1;
-    perUser.set(log.user_id, row);
-  }
+  // ---------- 접속 기록 ----------
   const logSection = el(
     'section',
     { class: 'card' },
-    el('h2', {}, '계정별 접속 기록 (최근 500번 기준, 1년 지나면 자동 삭제)'),
+    el('h2', {}, '접속 기록 (최근 100개, 1년 지나면 자동 삭제)'),
     logsError
       ? errorBox(logsError)
-      : perUser.size
+      : logs.length
         ? el(
             'div',
             { class: 'table-wrap' },
             el(
               'table',
               { class: 'rank-table log-table' },
-              el('thead', {}, el('tr', {}, el('th', {}, '아이디'), el('th', {}, '마지막 접속'), el('th', {}, '접속 횟수'), el('th', {}, '기기'))),
+              el('thead', {}, el('tr', {}, el('th', {}, '시각'), el('th', {}, '아이디'), el('th', {}, 'IP 주소'), el('th', {}, '브라우저'))),
               el(
                 'tbody',
                 {},
-                [...perUser].map(([userId, row]) => {
-                  const p = byId.get(userId);
+                logs.map((log) => {
+                  const p = byId.get(log.user_id);
                   return el(
                     'tr',
                     {},
+                    el('td', {}, formatDateTime(log.created_at)),
                     el('td', {}, p ? `${p.username}${saved.get(p.id) ? ` · ${saved.get(p.id)}` : ''}` : '(지운 계정)'),
-                    el('td', {}, formatDateTime(row.last)),
-                    el('td', {}, `${row.count}번`),
-                    el('td', { class: 'row-meta' }, (row.agent ?? '-').slice(0, 60)),
+                    el('td', {}, log.ip ?? '-'),
+                    el('td', { class: 'row-meta' }, (log.user_agent ?? '-').slice(0, 60)),
                   );
                 }),
               ),
