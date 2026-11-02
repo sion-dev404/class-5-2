@@ -2,11 +2,9 @@ import { supabase } from '../supabase.js';
 import { forgetUser, isAdmin } from '../auth.js';
 import { el, errorBox, message, withBusy } from '../ui.js';
 
-const WHEN = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium', timeStyle: 'short' });
-
 export const title = '내 정보';
 
-export async function render(view, ctx) {
+export function render(view, ctx) {
   const { user } = ctx;
   const input = el('input', {
     id: 'nickname',

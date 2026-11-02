@@ -616,9 +616,7 @@ check('동의 안 함 → 내 계정 스스로 삭제', r.rows[0].n === 0, r.row
 r = await as('s02', `select public.log_visit()`);
 check('접속 기록 남기기', !r.error, r);
 r = await as('s02', `select * from public.access_logs`);
-check('학생: 내 접속 기록만 읽기 (IP 없음)', !r.error && r.rows.length === 1 && r.rows[0].user_id === ids.s02 && r.rows[0].ip === null, r);
-r = await as('s01', `select * from public.access_logs`);
-check('학생: 다른 친구 접속 기록은 안 보임', !r.error && r.rows.length === 0, r);
+check('학생: 접속 기록 읽기 0건', !r.error && r.rows.length === 0, r);
 r = await as('s02', `insert into public.access_logs (user_id, ip) values ('${ids.redsionkim}', '1.1.1.1')`);
 check('학생: 접속 기록 직접 쓰기 거부', !!r.error, r);
 r = await as('redsionkim', `select user_id from public.access_logs`);
