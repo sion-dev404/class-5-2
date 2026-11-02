@@ -40,7 +40,7 @@ const routes = {
 // 로그인하지 않아도 볼 수 있는 화면
 const PUBLIC_ROUTES = ['login', 'signup', 'privacy'];
 
-// 메뉴: 비슷한 것끼리 한 곳에 모으고, 안에서 탭으로 이동 (캘린더는 홈에 그대로)
+// 메뉴: 비슷한 것끼리 한 곳에 모으고, 안에서 탭으로 이동
 const GROUPS = [
   { label: '소통', tabs: [['board', '게시판'], ['popular', '이달의 인기글'], ['topics', '보드'], ['gallery', '갤러리']] },
   { label: '수업', tabs: [['lessons', '오늘의 수업']] },

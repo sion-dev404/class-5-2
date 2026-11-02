@@ -1,5 +1,4 @@
 import { isAdmin } from '../auth.js';
-import { calendarSection } from '../calendar.js';
 import { realNames } from '../realnames.js';
 import { el, errorBox, formatDate, loading, message, today } from '../ui.js';
 import { fetchLessons, lessonHeading } from './lessons.js';
@@ -7,7 +6,7 @@ import { fetchPopular, popularList } from './popular.js';
 
 export const title = '홈';
 
-// 오늘의 수업 · 이달의 인기글 · 캘린더를 한눈에 (칸마다 따로 불러옴)
+// 오늘의 수업 · 이달의 인기글을 한눈에 (칸마다 따로 불러옴)
 export function render(view, ctx) {
   const name = isAdmin(ctx.user) ? '선생님' : `${ctx.user.nickname ?? ctx.user.username}님`;
 
@@ -40,7 +39,6 @@ export function render(view, ctx) {
         section('#/lessons', '오늘의 수업', lessonsBox),
         section('#/popular', '이달의 인기글', popularBox),
       ),
-      calendarSection(ctx),
     ),
   );
 
