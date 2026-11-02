@@ -2,7 +2,7 @@ import { supabase } from './supabase.js';
 import { isAdmin } from './auth.js';
 import { el, errorBox, formatDate, isDateStr, message, toDateStr, today, withBusy } from './ui.js';
 
-// 홈 캘린더: 학급 일정(선생님 입력) + 숙제 마감일
+// 홈 캘린더: 학급 일정(선생님 입력)
 // 달 이동·날짜 고르기는 이 칸 안에서만 다시 그림
 export function calendarSection(ctx) {
   const admin = isAdmin(ctx.user);
@@ -18,9 +18,8 @@ export function calendarSection(ctx) {
     const from = toDateStr(first);
     const to = toDateStr(last);
 
-    const [{ data: events, error }, { data: homework, error: hError }] = await Promise.all([
+    const [{ data: events, error }] = await Promise.all([
       supabase.from('events').select('id, event_date, title').gte('event_date', from).lte('event_date', to).order('event_date').order('id'),
-      supabase.from('homework').select('id, title, due_date').gte('due_date', from).lte('due_date', to).order('due_date'),
     ]);
 
     const head = el(
@@ -30,17 +29,13 @@ export function calendarSection(ctx) {
       el('h2', {}, `${year}년 ${month + 1}월`),
       el('button', { type: 'button', class: 'secondary small', 'aria-label': '다음달', onclick: () => move(1) }, '▶'),
     );
-    if (error || hError) {
-      // 일정 표가 아직 없으면(SQL 실행 전) 숙제만이라도
-      if (error?.code !== 'PGRST205') return box.replaceChildren(head, errorBox(error ?? hError));
-    }
+    // 일정 표가 아직 없으면(SQL 실행 전) 빈 달력
+    if (error && error.code !== 'PGRST205') return box.replaceChildren(head, errorBox(error));
     const eventList = error ? [] : events;
-    const homeworkList = hError ? [] : homework;
 
     const byDate = new Map();
     const add = (date, item) => byDate.set(date, [...(byDate.get(date) ?? []), item]);
     eventList.forEach((e) => add(e.event_date, { kind: 'event', ...e }));
-    homeworkList.forEach((h) => add(h.due_date, { kind: 'homework', ...h }));
 
     const cells = [];
     for (let i = 0; i < first.getDay(); i++) cells.push(el('div', { class: 'cal-cell empty' }));
@@ -65,7 +60,6 @@ export function calendarSection(ctx) {
             'span',
             { class: 'cal-dots' },
             items.some((i) => i.kind === 'event') ? el('span', { class: 'dot event' }) : null,
-            items.some((i) => i.kind === 'homework') ? el('span', { class: 'dot homework' }) : null,
           ),
           items.length ? el('span', { class: 'cal-label' }, items[0].title) : null,
         ),
@@ -103,7 +97,7 @@ export function calendarSection(ctx) {
                 'li',
                 { class: 'item-head' },
                 el('span', { class: `dot ${item.kind}` }),
-                item.kind === 'homework' ? el('a', { href: '#/homework' }, `숙제 마감: ${item.title}`) : el('span', {}, item.title),
+                el('span', {}, item.title),
                 el('span', { class: 'spacer' }),
                 remove,
               );
@@ -139,7 +133,7 @@ export function calendarSection(ctx) {
       head,
       weekdays,
       grid,
-      el('div', { class: 'cal-legend row-meta' }, el('span', { class: 'dot event' }), ' 학급 일정  ', el('span', { class: 'dot homework' }), ' 숙제 마감'),
+      el('div', { class: 'cal-legend row-meta' }, el('span', { class: 'dot event' }), ' 학급 일정  '),
       dayList,
       form ?? '',
     );

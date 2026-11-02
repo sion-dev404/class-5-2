@@ -1,20 +1,18 @@
 import { isAdmin } from '../auth.js';
 import { calendarSection } from '../calendar.js';
-import { fetchMeal } from '../meal.js';
+import { realNames } from '../realnames.js';
 import { el, errorBox, formatDate, loading, message, today } from '../ui.js';
 import { fetchLessons, lessonHeading } from './lessons.js';
-import { dueBadge, fetchUpcomingHomework } from './homework.js';
-import { dishList } from './meal.js';
+import { fetchPopular, popularList } from './popular.js';
 
 export const title = '홈';
 
-// 오늘의 수업 · 가까운 숙제 · 오늘 급식 · 캘린더를 한눈에 (칸마다 따로 불러옴)
+// 오늘의 수업 · 이달의 인기글 · 캘린더를 한눈에 (칸마다 따로 불러옴)
 export function render(view, ctx) {
   const name = isAdmin(ctx.user) ? '선생님' : `${ctx.user.nickname ?? ctx.user.username}님`;
 
   const lessonsBox = el('div', {}, loading());
-  const homeworkBox = el('div', {}, loading());
-  const mealBox = el('div', {}, loading());
+  const popularBox = el('div', {}, loading());
 
   view.append(
     el('h1', {}, `안녕하세요, ${name}!`),
@@ -40,16 +38,14 @@ export function render(view, ctx) {
         'div',
         { class: 'home-left' },
         section('#/lessons', '오늘의 수업', lessonsBox),
-        section('#/homework', '다가오는 숙제', homeworkBox),
-        section('#/meal', '오늘 급식', mealBox),
+        section('#/popular', '이달의 인기글', popularBox),
       ),
       calendarSection(ctx),
     ),
   );
 
   loadLessons(lessonsBox);
-  loadHomework(homeworkBox);
-  loadMeal(mealBox);
+  loadPopular(popularBox, ctx);
 }
 
 function section(href, heading, body) {
@@ -66,26 +62,8 @@ async function loadLessons(box) {
   );
 }
 
-async function loadHomework(box) {
-  const { data, error } = await fetchUpcomingHomework(3);
+async function loadPopular(box, ctx) {
+  const [{ data, error }, names] = await Promise.all([fetchPopular(3), realNames(ctx.user)]);
   if (error) return box.replaceChildren(errorBox(error));
-  box.replaceChildren(
-    data.length === 0
-      ? message('해야 할 숙제가 없어요. 🎉')
-      : el(
-          'ul',
-          { class: 'list' },
-          data.map((item) =>
-            el('li', {}, el('div', { class: 'item-head' }, dueBadge(item.due_date), el('span', {}, item.title))),
-          ),
-        ),
-  );
-}
-
-async function loadMeal(box) {
-  const { data: meal, error } = await fetchMeal(today());
-  if (error) return box.replaceChildren(errorBox(error));
-  if (!meal) return box.replaceChildren(message('오늘은 등록된 급식이 없어요.'));
-  // 메뉴 글이 있으면 글, 사진만 올렸으면 급식 화면으로 가는 안내
-  box.replaceChildren(meal.menu ? dishList(meal.menu) : el('a', { href: '#/meal' }, '📷 오늘 식단표 사진 보기 ›'));
+  box.replaceChildren(data.length === 0 ? message('이번 달에는 아직 공감을 받은 글이 없어요.') : popularList(data, names));
 }

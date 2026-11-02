@@ -1874,3 +1874,13 @@ button.google-button:hover {
 .visit-detail {
   padding: 0 4px 12px;
 }
+
+/* ---------- 이달의 인기글 ---------- */
+
+.popular-rank {
+  display: inline-block;
+  min-width: 1.6em;
+  margin-right: 6px;
+  color: var(--primary);
+  font-weight: 700;
+}

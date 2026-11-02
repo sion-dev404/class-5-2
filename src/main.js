@@ -6,9 +6,8 @@ import * as login from './pages/login.js';
 import * as me from './pages/me.js';
 import * as home from './pages/home.js';
 import * as board from './pages/board.js';
+import * as popular from './pages/popular.js';
 import * as lessons from './pages/lessons.js';
-import * as homework from './pages/homework.js';
-import * as meal from './pages/meal.js';
 import * as admin from './pages/admin.js';
 import * as topics from './pages/topics.js';
 import * as quiz from './pages/quiz.js';
@@ -23,9 +22,8 @@ import * as privacy from './pages/privacy.js';
 const routes = {
   '': home,
   board,
+  popular,
   lessons,
-  homework,
-  meal,
   me,
   admin,
   topics,
@@ -44,8 +42,8 @@ const PUBLIC_ROUTES = ['login', 'signup', 'privacy'];
 
 // 메뉴: 비슷한 것끼리 한 곳에 모으고, 안에서 탭으로 이동 (캘린더는 홈에 그대로)
 const GROUPS = [
-  { label: '소통', tabs: [['board', '게시판'], ['topics', '보드'], ['gallery', '갤러리']] },
-  { label: '수업', tabs: [['lessons', '오늘의 수업'], ['homework', '숙제'], ['meal', '급식']] },
+  { label: '소통', tabs: [['board', '게시판'], ['popular', '이달의 인기글'], ['topics', '보드'], ['gallery', '갤러리']] },
+  { label: '수업', tabs: [['lessons', '오늘의 수업']] },
   { label: '퀴즈', tabs: [['quiz', '퀴즈'], ['points', '순위']] },
   { label: '관리', admin: true, tabs: [['admin', '학생 관리'], ['seats', '자리'], ['site', '사이트']] },
 ];
