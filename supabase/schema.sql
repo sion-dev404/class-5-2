@@ -1526,3 +1526,33 @@ grant execute on function public.points_ranking() to authenticated;
 -- 끝! 이제 Authentication → Users 에서 계정을 만든 뒤,
 -- supabase/make-admin.sql 을 실행해 redsionkim 을 관리자로 지정하세요.
 -- =====================================================================
+
+
+-- ---------------------------------------------------------------------
+-- 접속 기록에서 IP 주소를 빼고 계정별로만 남김 (2026-11-02)
+--   · 예전에 모아 둔 IP는 지우고, 앞으로는 IP를 저장하지 않음
+-- ---------------------------------------------------------------------
+update public.access_logs set ip = null where ip is not null;
+
+create or replace function public.log_visit()
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_headers json;
+begin
+  if auth.uid() is null then
+    return;
+  end if;
+  begin
+    v_headers := nullif(current_setting('request.headers', true), '')::json;
+  exception when others then
+    v_headers := null;
+  end;
+  insert into public.access_logs (user_id, user_agent)
+  values (auth.uid(), left(v_headers ->> 'user-agent', 300));
+  delete from public.access_logs where created_at < now() - interval '1 year';
+end;
+$$;

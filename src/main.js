@@ -136,9 +136,9 @@ function showWarning() {
       { class: 'warning-box' },
       el('div', { class: 'warning-icon', 'aria-hidden': 'true' }, '⚠️'),
       el('h2', { id: 'warning-title' }, '경고'),
-      el('p', {}, '이 누리집은 접속하는 사람의 ', el('strong', {}, 'IP 주소를 기록'), '하고 있어요.'),
+      el('p', {}, '이 누리집은 ', el('strong', {}, '계정마다 접속 기록'), '을 남기고 있어요.'),
       el('p', {}, el('strong', {}, '다른 사람에게 피해를 주는 일은 절대 하지 마세요.'), ' 다른 사람의 아이디로 로그인하기, 친구를 괴롭히는 글·댓글 쓰기도 안 돼요.'),
-      el('p', { class: 'row-meta' }, '문제가 생기면 기록으로 확인해요.'),
+      el('p', { class: 'row-meta' }, '문제가 생기면 계정별 기록으로 확인해요.'),
       ok,
     ),
   );
