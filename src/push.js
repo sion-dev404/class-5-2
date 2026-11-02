@@ -6,13 +6,17 @@ const PushNotifications = registerPlugin('PushNotifications');
 
 let started = false;
 
+// Firebase 설정(google-services.json)을 앱에 넣고 서버를 준비한 뒤에만 true 로 바꿈.
+// 설정 없이 켜면 앱이 켜지자마자 꺼져 버림 (FirebaseApp is not initialized)
+const PUSH_ENABLED = false;
+
 export function isApp() {
   return Capacitor.isNativePlatform();
 }
 
 // 로그인한 사람의 기기를 알림 대상으로 등록 (로그인 때마다 한 번)
 export async function setupPush() {
-  if (!isApp() || started) return;
+  if (!PUSH_ENABLED || !isApp() || started) return;
   started = true;
   try {
     let { receive } = await PushNotifications.checkPermissions();
@@ -39,7 +43,7 @@ export async function setupPush() {
 
 // 로그아웃할 때: 이 기기로는 더 이상 이 계정의 알림이 오지 않게 함
 export async function teardownPush() {
-  if (!isApp()) return;
+  if (!PUSH_ENABLED || !isApp()) return;
   started = false;
   try {
     await PushNotifications.removeAllListeners();
