@@ -61,7 +61,7 @@ async function loadLessons(box) {
 }
 
 async function loadPopular(box, ctx) {
-  const [{ data, error }, names] = await Promise.all([fetchPopular(3), realNames(ctx.user)]);
+  const [{ data, error }, names] = await Promise.all([fetchPopular(), realNames(ctx.user)]);
   if (error) return box.replaceChildren(errorBox(error));
   box.replaceChildren(data.length === 0 ? message('이번 달에는 아직 공감을 받은 글이 없어요.') : popularList(data, names));
 }
