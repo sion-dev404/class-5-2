@@ -3,6 +3,7 @@ import { configError, supabase } from './supabase.js';
 import { forgetUser, getCurrentUser, isAdmin, isApproved, needsOnboarding, onSignedOut, signOut } from './auth.js';
 import { el, message } from './ui.js';
 import { setupPush } from './push.js';
+import { closeLoginWindow, onAppUrl } from './native.js';
 import * as login from './pages/login.js';
 import * as me from './pages/me.js';
 import * as home from './pages/home.js';
@@ -323,6 +324,21 @@ if (configError) {
   readOAuthReturn();
   if (!location.hash) history.replaceState(null, '', location.pathname + location.search + '#/');
   showWarning();
+  // 앱: 크롬 창에서 Google 로그인을 마치고 돌아옴 → 받은 코드로 로그인 완료
+  onAppUrl(async (url) => {
+    await closeLoginWindow();
+    const code = url.searchParams.get('code');
+    const failed = url.searchParams.get('error_description') ?? url.searchParams.get('error');
+    if (code) {
+      const { error } = await supabase.auth.exchangeCodeForSession(code);
+      if (error) loginError = `Google 로그인에 실패했어요: ${error.message}`;
+    } else if (failed) {
+      loginError = `Google 로그인에 실패했어요: ${failed}`;
+    }
+    forgetUser();
+    location.hash = '#/';
+    render();
+  });
   window.addEventListener('hashchange', render);
   onSignedOut(() => {
     if (parseHash().name !== 'login') location.hash = '#/login';

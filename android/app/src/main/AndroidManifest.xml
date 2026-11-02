@@ -22,6 +22,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Google 로그인을 마친 크롬 창이 앱으로 돌아오는 길 -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="io.github.siondev404.class52" android:host="login-callback" />
+            </intent-filter>
+
         </activity>
 
         <provider

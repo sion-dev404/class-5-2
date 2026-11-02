@@ -2,6 +2,7 @@ import { supabase } from './supabase.js';
 import { ID_DOMAIN } from './config.js';
 import { PRIVACY_VERSION } from './privacy.js';
 import { teardownPush } from './push.js';
+import { APP_REDIRECT, isApp, openLoginWindow } from './native.js';
 
 // 아이디: 영어 소문자·숫자·_ 만 (예: s01, redsionkim)
 const USERNAME_PATTERN = /^[a-z0-9_]{2,30}$/;
@@ -67,13 +68,16 @@ export async function signUp(username, password, realName) {
 // Google 계정으로 로그인 (Google 화면으로 갔다가 이 누리집으로 돌아옴)
 export async function signInWithGoogle() {
   cachedUser = undefined;
-  const { error } = await supabase.auth.signInWithOAuth({
+  const inApp = isApp(); // 앱에서는 크롬 창으로 로그인하고 앱으로 돌아옴
+  const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: location.origin + location.pathname,
+      redirectTo: inApp ? APP_REDIRECT : location.origin + location.pathname,
+      skipBrowserRedirect: inApp,
       queryParams: { prompt: 'select_account' }, // 여러 계정 중 고를 수 있게
     },
   });
+  if (!error && inApp) await openLoginWindow(data.url);
   return { error };
 }
 
