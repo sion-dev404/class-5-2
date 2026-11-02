@@ -1,0 +1,14 @@
+{
+  "appId": "io.github.siondev404.class52",
+  "appName": "5학년 2반",
+  "webDir": "dist",
+  "server": {
+    "url": "https://sion-dev404.github.io/class-5-2/",
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    }
+  }
+}

@@ -1,6 +1,7 @@
 import { supabase } from './supabase.js';
 import { ID_DOMAIN } from './config.js';
 import { PRIVACY_VERSION } from './privacy.js';
+import { teardownPush } from './push.js';
 
 // 아이디: 영어 소문자·숫자·_ 만 (예: s01, redsionkim)
 const USERNAME_PATTERN = /^[a-z0-9_]{2,30}$/;
@@ -91,6 +92,7 @@ export async function cancelSignup() {
 }
 
 export async function signOut() {
+  await teardownPush(); // 앱이면 이 기기의 알림 등록을 지움 (로그인 상태일 때만 가능)
   cachedUser = null;
   await supabase.auth.signOut();
 }

@@ -2,6 +2,7 @@ import './style.css';
 import { configError, supabase } from './supabase.js';
 import { forgetUser, getCurrentUser, isAdmin, isApproved, needsOnboarding, onSignedOut, signOut } from './auth.js';
 import { el, message } from './ui.js';
+import { setupPush } from './push.js';
 import * as login from './pages/login.js';
 import * as me from './pages/me.js';
 import * as home from './pages/home.js';
@@ -281,6 +282,7 @@ async function render() {
     return;
   }
   if (user) logVisit(user);
+  if (user && isApproved(user)) setupPush();
 
   updateHeader(isApproved(user) ? user : null, route.name);
   app.replaceChildren(view);
