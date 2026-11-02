@@ -1823,3 +1823,30 @@ button.google-button:hover {
 .center-text {
   text-align: center;
 }
+
+/* ---------- 홈: 소통 바로가기 ---------- */
+
+.shortcut-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.shortcut {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin: 0;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.shortcut:hover {
+  border-color: var(--primary);
+}
+
+.shortcut-icon {
+  font-size: 1.8rem;
+}
