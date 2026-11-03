@@ -624,6 +624,45 @@ check('관리자: 접속 기록 보기', r.rows?.some((row) => row.user_id === i
 r = await as('anon', `select public.log_visit()`);
 check('비로그인: 접속 기록 함수 거부', !!r.error, r);
 
+// ---- 1:1 대화 ----
+r = await as('gkid', `insert into public.messages (recipient_id, content) values ('${ids.s02}', '안녕!')`);
+check('1:1: 친구에게 보내기', !r.error, r);
+r = await as('s02', `select content, sender_id from public.messages`);
+check('1:1: 받은 사람은 읽음', r.rows?.length === 1 && r.rows[0].sender_id === ids.gkid, r);
+r = await as('redsionkim', `select * from public.messages`);
+check('1:1: 관리자도 남의 대화는 못 읽음', !r.error && r.rows.length === 0, r);
+r = await as('gkid', `insert into public.messages (sender_id, recipient_id, content) values ('${ids.s02}', '${ids.gkid}', '가짜')`);
+check('1:1: 남 이름으로 보내기 거부', !!r.error, r);
+r = await as('gkid', `insert into public.messages (recipient_id, content) values ('${ids.gkid}', '혼잣말')`);
+check('1:1: 나에게 보내기 거부', !!r.error, r);
+r = await as('gkid', `insert into public.messages (recipient_id, content) values ('${ids.newkid}', '승인 전')`);
+check('1:1: 승인 안 된 사람에게 보내기 거부', !!r.error, r);
+r = await as('gkid', `insert into public.messages (recipient_id, content) values ('${ids.s02}', '${'가'.repeat(501)}')`);
+check('1:1: 500자 넘으면 거부', !!r.error, r);
+r = await as('gkid', `update public.messages set read_at = now()`);
+check('1:1: 보낸 사람은 읽음 표시 못 바꿈', !r.error && r.affected === 0, r);
+r = await as('s02', `update public.messages set read_at = now() where sender_id = '${ids.gkid}'`);
+check('1:1: 받은 사람은 읽음 표시', !r.error && r.affected === 1, r);
+r = await as('s02', `update public.messages set content = '고침'`);
+check('1:1: 내용 고치기 거부', !!r.error, r);
+r = await as('gkid', `select public.report_message(id) from public.messages`);
+check('1:1: 보낸 사람은 자기 메시지를 신고 못 함', !!r.error, r);
+r = await as('s02', `insert into public.messages (recipient_id, content) values ('${ids.gkid}', '답장')`);
+r = await as('s02', `select public.report_message(id) from public.messages where sender_id = '${ids.gkid}'`);
+check('1:1: 받은 메시지 신고', !r.error, r);
+r = await as('redsionkim', `select content, sender_id from public.message_reports`);
+check('1:1: 관리자는 신고된 내용만 봄', r.rows?.length === 1 && r.rows[0].sender_id === ids.gkid && r.rows[0].content.includes('안녕!'), r);
+r = await as('gkid', `select * from public.message_reports`);
+check('1:1: 학생은 신고 목록 못 봄', !r.error && r.rows.length === 0, r);
+r = await as('gkid', `delete from public.message_reports`);
+check('1:1: 학생은 신고 지우기 불가', !!r.error || r.affected === 0, r);
+r = await as('redsionkim', `delete from public.message_reports`);
+check('1:1: 관리자는 확인한 신고 지우기', !r.error && r.affected === 1, r);
+r = await as('gkid', `delete from public.messages where sender_id = '${ids.gkid}'`);
+check('1:1: 내가 보낸 메시지 지우기', !r.error && r.affected === 1, r);
+r = await as('anon', `select * from public.messages`);
+check('1:1: 비로그인 거부', !!r.error, r);
+
 // ---- 사이트 닫힘 (계정 도용 대응) ----
 check('schema.sql 실행 직후 사이트는 닫힌 상태', firstClosed === true, firstClosed);
 r = await as('anon', `select closed, notice from public.site_settings`);

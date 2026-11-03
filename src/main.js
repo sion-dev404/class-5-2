@@ -9,6 +9,7 @@ import * as me from './pages/me.js';
 import * as home from './pages/home.js';
 import * as board from './pages/board.js';
 import * as popular from './pages/popular.js';
+import * as chat from './pages/chat.js';
 import * as lessons from './pages/lessons.js';
 import * as admin from './pages/admin.js';
 import * as topics from './pages/topics.js';
@@ -25,6 +26,7 @@ const routes = {
   '': home,
   board,
   popular,
+  chat,
   lessons,
   me,
   admin,
@@ -44,7 +46,7 @@ const PUBLIC_ROUTES = ['login', 'signup', 'privacy'];
 
 // 메뉴: 비슷한 것끼리 한 곳에 모으고, 안에서 탭으로 이동
 const GROUPS = [
-  { label: '소통', tabs: [['board', '게시판'], ['popular', '이달의 인기글'], ['topics', '보드'], ['gallery', '갤러리']] },
+  { label: '소통', tabs: [['board', '게시판'], ['popular', '이달의 인기글'], ['chat', '1:1 대화'], ['topics', '보드'], ['gallery', '갤러리']] },
   { label: '수업', tabs: [['lessons', '오늘의 수업']] },
   { label: '퀴즈', tabs: [['quiz', '퀴즈'], ['points', '순위']] },
   { label: '관리', admin: true, tabs: [['admin', '학생 관리'], ['seats', '자리'], ['site', '사이트']] },

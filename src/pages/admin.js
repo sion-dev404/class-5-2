@@ -208,5 +208,42 @@ export async function render(view, ctx) {
     );
   }
 
-  box.replaceChildren(requests, status, members, logSection);
+  // ---------- 신고된 1:1 메시지 (신고한 것만 보임) ----------
+  const { data: reports, error: reportsError } = await supabase
+    .from('message_reports')
+    .select('id, reporter_id, sender_id, content, created_at')
+    .order('created_at', { ascending: false })
+    .limit(30);
+  const reportSection = el('section', { class: 'card' }, el('h2', {}, `신고된 메시지 ${reports?.length ?? 0}건`));
+  if (reportsError) {
+    reportSection.append(reportsError.code === 'PGRST205' ? message('1:1 대화 SQL을 아직 실행하지 않았어요.') : errorBox(reportsError));
+  } else if (reports.length === 0) {
+    reportSection.append(message('신고된 메시지가 없어요.'));
+  } else {
+    const nameOf = (id) => {
+      const p = byId.get(id);
+      return p ? `${p.username}${saved.get(p.id) ? ` · ${saved.get(p.id)}` : ''}` : '(지운 계정)';
+    };
+    for (const report of reports) {
+      const done = el('button', { type: 'button', class: 'secondary small' }, '확인 완료(삭제)');
+      done.addEventListener('click', () =>
+        withBusy(done, async () => {
+          const { error: deleteError } = await supabase.from('message_reports').delete().eq('id', report.id);
+          if (deleteError) return status.replaceChildren(errorBox(deleteError));
+          item.remove();
+        }),
+      );
+      const item = el(
+        'div',
+        { class: 'card' },
+        el('p', {}, `신고한 사람: ${nameOf(report.reporter_id)} → 신고당한 사람: ${nameOf(report.sender_id)}`),
+        el('p', { class: 'row-meta' }, formatDateTime(report.created_at)),
+        el('pre', { class: 'report-text' }, report.content),
+        done,
+      );
+      reportSection.append(item);
+    }
+  }
+
+  box.replaceChildren(requests, reportSection, status, members, logSection);
 }

@@ -1727,3 +1727,97 @@ button.google-button:hover {
   color: var(--primary);
   font-weight: 700;
 }
+
+/* ---------- 1:1 대화 ---------- */
+
+.friend-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.friend-chip {
+  padding: 6px 12px;
+  color: var(--text);
+  text-decoration: none;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.friend-chip:hover {
+  border-color: var(--primary);
+}
+
+.unread-badge {
+  display: inline-block;
+  min-width: 1.4em;
+  margin-left: 8px;
+  padding: 0 6px;
+  color: #fff;
+  font-size: 0.8rem;
+  line-height: 1.4em;
+  text-align: center;
+  background: #e5484d;
+  border-radius: 999px;
+}
+
+.chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 55vh;
+  min-height: 260px;
+  padding: 12px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.bubble {
+  max-width: 80%;
+  padding: 8px 12px;
+  border-radius: 14px;
+}
+
+.bubble.mine {
+  align-self: flex-end;
+  background: #dbe8ff;
+}
+
+.bubble.theirs {
+  align-self: flex-start;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.bubble-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bubble-actions {
+  margin-top: 4px;
+}
+
+.chat-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.chat-form textarea {
+  resize: none;
+}
+
+.report-text {
+  margin: 8px 0;
+  padding: 8px 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  background: var(--bg);
+  border-radius: var(--radius);
+}

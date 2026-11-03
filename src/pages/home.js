@@ -2,6 +2,7 @@ import { isAdmin } from '../auth.js';
 import { realNames } from '../realnames.js';
 import { el, errorBox, formatDate, loading, message, today } from '../ui.js';
 import { fetchLessons, lessonHeading } from './lessons.js';
+import { countUnread } from './chat.js';
 import { fetchPopular, popularList } from './popular.js';
 
 export const title = '홈';
@@ -29,6 +30,11 @@ export function render(view, ctx) {
       ),
     );
   }
+  const unreadBox = el('div');
+  view.append(unreadBox);
+  countUnread().then((n) => {
+    if (n > 0) unreadBox.replaceChildren(el('p', { class: 'ok' }, `💌 안 읽은 메시지가 ${n}개 있어요. `, el('a', { href: '#/chat' }, '1:1 대화 열기')));
+  });
   view.append(
     el(
       'div',

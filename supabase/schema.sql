@@ -1526,3 +1526,120 @@ grant execute on function public.points_ranking() to authenticated;
 -- 끝! 이제 Authentication → Users 에서 계정을 만든 뒤,
 -- supabase/make-admin.sql 을 실행해 redsionkim 을 관리자로 지정하세요.
 -- =====================================================================
+
+
+-- ---------------------------------------------------------------------
+-- 1:1 대화 (2026-11-03)
+--   messages        : 보낸 사람 → 받는 사람 글 (500자). 대화한 두 사람만 읽을 수 있음 (관리자도 못 읽음)
+--   message_reports : 받은 사람이 "신고"하면 그 메시지와 앞 대화 몇 줄만 관리자에게 남음
+-- ---------------------------------------------------------------------
+create table if not exists public.messages (
+  id           bigint generated always as identity primary key,
+  sender_id    uuid not null default auth.uid() references public.profiles (id) on delete cascade,
+  recipient_id uuid not null references public.profiles (id) on delete cascade,
+  content      text not null check (char_length(content) between 1 and 500),
+  created_at   timestamptz not null default now(),
+  read_at      timestamptz,
+  check (sender_id <> recipient_id)
+);
+create index if not exists messages_recipient_idx on public.messages (recipient_id, created_at desc);
+create index if not exists messages_pair_idx on public.messages (sender_id, recipient_id, created_at desc);
+
+create table if not exists public.message_reports (
+  id          bigint generated always as identity primary key,
+  reporter_id uuid not null references public.profiles (id) on delete cascade,
+  sender_id   uuid not null references public.profiles (id) on delete cascade, -- 신고당한 사람
+  message_id  bigint,                                                          -- 메시지가 지워져도 기록은 남김
+  content     text not null,                                                   -- 신고한 메시지 + 앞 대화
+  created_at  timestamptz not null default now()
+);
+
+alter table public.messages enable row level security;
+alter table public.message_reports enable row level security;
+
+revoke all on public.messages, public.message_reports from anon, authenticated;
+grant select, delete on public.messages to authenticated;
+grant insert (recipient_id, content) on public.messages to authenticated; -- 보낸 사람은 항상 나 (sender_id 기본값)
+grant update (read_at) on public.messages to authenticated;
+grant select, delete on public.message_reports to authenticated;
+
+drop policy if exists "messages: 내가 보내거나 받은 것만 읽기" on public.messages;
+create policy "messages: 내가 보내거나 받은 것만 읽기" on public.messages
+  for select to authenticated
+  using (sender_id = (select auth.uid()) or recipient_id = (select auth.uid()));
+
+drop policy if exists "messages: 승인된 친구에게만 보내기" on public.messages;
+create policy "messages: 승인된 친구에게만 보내기" on public.messages
+  for insert to authenticated
+  with check (
+    sender_id = (select auth.uid())
+    and (select public.is_approved())
+    and exists (select 1 from public.profiles p where p.id = recipient_id and p.status = 'approved')
+  );
+
+drop policy if exists "messages: 받은 것만 읽음 표시" on public.messages;
+create policy "messages: 받은 것만 읽음 표시" on public.messages
+  for update to authenticated
+  using (recipient_id = (select auth.uid()))
+  with check (recipient_id = (select auth.uid()));
+
+drop policy if exists "messages: 내가 보낸 것만 지우기" on public.messages;
+create policy "messages: 내가 보낸 것만 지우기" on public.messages
+  for delete to authenticated
+  using (sender_id = (select auth.uid()));
+
+drop policy if exists "message_reports: 관리자만 읽기" on public.message_reports;
+create policy "message_reports: 관리자만 읽기" on public.message_reports
+  for select to authenticated
+  using ((select public.is_admin()));
+
+drop policy if exists "message_reports: 관리자만 지우기" on public.message_reports;
+create policy "message_reports: 관리자만 지우기" on public.message_reports
+  for delete to authenticated
+  using ((select public.is_admin()));
+
+-- 사이트가 닫히면 1:1 대화도 막힘 (다른 자료와 같은 규칙)
+drop policy if exists "닫힘 잠금" on public.messages;
+create policy "닫힘 잠금" on public.messages
+  as restrictive for all to authenticated
+  using ((select public.can_use()))
+  with check ((select public.can_use()));
+drop policy if exists "닫힘 잠금" on public.message_reports;
+create policy "닫힘 잠금" on public.message_reports
+  as restrictive for all to authenticated
+  using ((select public.can_use()))
+  with check ((select public.can_use()));
+
+-- 신고: 내가 받은 메시지만. 그 메시지와 같은 대화의 앞 5줄을 같이 남김
+create or replace function public.report_message(p_message_id bigint)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_msg public.messages;
+  v_context text;
+begin
+  select * into v_msg from public.messages where id = p_message_id and recipient_id = auth.uid();
+  if not found then
+    raise exception '신고할 수 없는 메시지예요.';
+  end if;
+  select string_agg(
+           (case when m.sender_id = v_msg.sender_id then '[신고당한 사람] ' else '[신고한 사람] ' end) || m.content,
+           E'\n' order by m.created_at, m.id)
+    into v_context
+  from (
+    select * from public.messages
+    where ((sender_id = v_msg.sender_id and recipient_id = v_msg.recipient_id)
+        or (sender_id = v_msg.recipient_id and recipient_id = v_msg.sender_id))
+      and (created_at < v_msg.created_at or id = v_msg.id)
+    order by created_at desc, id desc
+    limit 6
+  ) m;
+  insert into public.message_reports (reporter_id, sender_id, message_id, content)
+  values (auth.uid(), v_msg.sender_id, v_msg.id, left(v_context, 3000));
+end;
+$$;
+revoke execute on function public.report_message(bigint) from public, anon;
+grant execute on function public.report_message(bigint) to authenticated;
