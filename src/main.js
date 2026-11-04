@@ -11,13 +11,10 @@ import * as board from './pages/board.js';
 import * as popular from './pages/popular.js';
 import * as chat from './pages/chat.js';
 import * as lessons from './pages/lessons.js';
-import * as admin from './pages/admin.js';
 import * as topics from './pages/topics.js';
 import * as quiz from './pages/quiz.js';
 import * as gallery from './pages/gallery.js';
 import * as points from './pages/points.js';
-import * as seats from './pages/seats.js';
-import * as site from './pages/site.js';
 import * as signup from './pages/signup.js';
 import * as privacy from './pages/privacy.js';
 
@@ -29,13 +26,10 @@ const routes = {
   chat,
   lessons,
   me,
-  admin,
   topics,
   quiz,
   gallery,
   points,
-  seats,
-  site,
   signup,
   privacy,
   login,
@@ -49,8 +43,9 @@ const GROUPS = [
   { label: '소통', tabs: [['board', '게시판'], ['popular', '이달의 인기글'], ['chat', '1:1 대화'], ['topics', '보드'], ['gallery', '갤러리']] },
   { label: '수업', tabs: [['lessons', '오늘의 수업']] },
   { label: '퀴즈', tabs: [['quiz', '퀴즈'], ['points', '순위']] },
-  { label: '관리', admin: true, tabs: [['admin', '학생 관리'], ['seats', '자리'], ['site', '사이트']] },
 ];
+// 관리자 페이지는 따로 열려요 (/class-5-2/admin/)
+const ADMIN_URL = `${import.meta.env.BASE_URL}admin/`;
 const groupOf = (name) => GROUPS.find((group) => group.tabs.some(([route]) => route === name));
 
 const app = document.getElementById('app');
@@ -83,9 +78,8 @@ function updateHeader(user, name) {
   const current = groupOf(name);
   menu.replaceChildren(
     el('a', { href: '#/', class: name === '' ? 'active' : null }, '홈'),
-    ...GROUPS.filter((group) => !group.admin || isAdmin(user)).map((group) =>
-      el('a', { href: `#/${group.tabs[0][0]}`, class: group === current ? 'active' : null, id: group.admin ? 'admin-link' : null }, group.label),
-    ),
+    ...GROUPS.map((group) => el('a', { href: `#/${group.tabs[0][0]}`, class: group === current ? 'active' : null }, group.label)),
+    isAdmin(user) ? el('a', { href: ADMIN_URL, id: 'admin-link' }, '관리 ↗') : null,
   );
 
   userArea.replaceChildren();
@@ -196,7 +190,7 @@ function closedPage(view, text) {
       el('h1', {}, '사이트 폐쇄'),
       el('p', { class: 'closed-notice' }, text || '도용 사건으로 사이트가 종료되었습니다.'),
     ),
-    el('p', { class: 'closed-admin' }, el('a', { href: '#/login?admin=1' }, '선생님(관리자) 로그인')),
+    el('p', { class: 'closed-admin' }, el('a', { href: ADMIN_URL }, '관리자 로그인')),
   );
 }
 
@@ -238,11 +232,6 @@ async function render() {
     if (route.name === 'privacy') {
       document.title = `${privacy.title} · 5학년 2반`;
       privacy.render(view);
-    } else if (route.name === 'login' && route.query.get('admin') === '1') {
-      document.title = '선생님 로그인 · 5학년 2반';
-      await login.render(view, { query: route.query, params: [], adminOnly: true, loginError, afterLogin: () => (location.hash = '#/') });
-      view.prepend(message('선생님(관리자) 계정만 로그인할 수 있어요. 학생 계정은 사이트가 닫혀 있어 들어갈 수 없어요.', 'warn'));
-      view.append(el('p', { class: 'closed-admin' }, el('a', { href: '#/login' }, '← 돌아가기')));
     } else {
       closedPage(view, status.notice);
     }
@@ -250,7 +239,7 @@ async function render() {
   }
   if (status.closed && adminUser) {
     banner.append(
-      el('p', { class: 'error site-banner' }, '🔒 지금 학생에게는 사이트가 닫혀 있어요 (폐쇄 화면이 보여요). ', el('a', { href: '#/site' }, '관리 → 사이트에서 열기')),
+      el('p', { class: 'error site-banner' }, '🔒 지금 학생에게는 사이트가 닫혀 있어요 (폐쇄 화면이 보여요). ', el('a', { href: ADMIN_URL }, '관리 페이지 → 사이트에서 열기')),
     );
   }
 
