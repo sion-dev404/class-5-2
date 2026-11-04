@@ -16,6 +16,8 @@ create table if not exists public.push_tokens (
 create index if not exists push_tokens_user_idx on public.push_tokens (user_id);
 alter table public.push_tokens enable row level security;
 revoke all on public.push_tokens from anon, authenticated;
+-- 발송 함수(Edge Function)가 쓰는 service_role 에는 읽기·지우기 권한을 줌
+grant select, delete on public.push_tokens to service_role;
 
 -- 발송 함수 주소·비밀 값 (아무도 못 읽음. 함수 안에서만 읽음)
 create table if not exists public.push_config (
