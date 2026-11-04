@@ -1,10 +1,12 @@
 import { supabase } from '../supabase.js';
 import { forgetUser, isAdmin } from '../auth.js';
 import { el, errorBox, message, withBusy } from '../ui.js';
+import { isApp } from '../native.js';
+import { canUseWebPush, enableWebPush, webPushPermission } from '../webpush.js';
 
 export const title = '내 정보';
 
-export function render(view, ctx) {
+export async function render(view, ctx) {
   const { user } = ctx;
   const input = el('input', {
     id: 'nickname',
@@ -56,5 +58,27 @@ export function render(view, ctx) {
     user.profileMissing
       ? message('profiles 정보가 없어 별명을 저장할 수 없어요. (선생님: schema.sql 실행 확인)', 'error')
       : form,
+    await notifySection(),
+  );
+}
+
+// 브라우저(크롬·사파리 홈 화면 앱)에서 알림 켜기. 앱(APK)은 자동이라 이 칸이 없음
+async function notifySection() {
+  if (isApp() || !(await canUseWebPush())) return null;
+  const status = el('div');
+  const button = el('button', { type: 'button' }, webPushPermission() === 'granted' ? '이 기기 알림 다시 켜기' : '알림 켜기');
+  button.addEventListener('click', () =>
+    withBusy(button, async () => {
+      const result = await enableWebPush();
+      status.replaceChildren(result.ok ? message('알림을 켰어요! 댓글·공감·메시지가 오면 알려 줘요.', 'ok') : message(result.error, 'error'));
+    }),
+  );
+  return el(
+    'section',
+    { class: 'card' },
+    el('h2', {}, '알림'),
+    el('p', { class: 'row-meta' }, '댓글, 공감, 1:1 메시지가 오면 폰에 알려 줘요. 아이폰은 사파리에서 "홈 화면에 추가"한 앱에서만 켤 수 있어요.'),
+    status,
+    button,
   );
 }

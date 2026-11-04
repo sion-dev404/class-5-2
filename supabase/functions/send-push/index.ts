@@ -75,6 +75,8 @@ Deno.serve(async (request) => {
             notification: { title, body },
             data: { url: String(url ?? '') },
             android: { priority: 'HIGH' },
+            // 브라우저 알림을 눌렀을 때 열 주소 (https 만 가능)
+            webpush: { fcm_options: { link: `https://sion-dev404.github.io/class-5-2/${String(url ?? '')}` } },
           },
         }),
       });
