@@ -6,9 +6,8 @@ const PushNotifications = registerPlugin('PushNotifications');
 
 let started = false;
 
-// Firebase 설정(google-services.json)을 앱에 넣고 서버를 준비한 뒤에만 true 로 바꿈.
-// 설정 없이 켜면 앱이 켜지자마자 꺼져 버림 (FirebaseApp is not initialized)
-const PUSH_ENABLED = false;
+// google-services.json 이 android/app 에 없으면 앱이 켜지자마자 꺼짐 (FirebaseApp is not initialized)
+const PUSH_ENABLED = true;
 
 export function isApp() {
   return Capacitor.isNativePlatform();
