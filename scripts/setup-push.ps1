@@ -1,6 +1,6 @@
-﻿# 푸시 알림 서버 설정 (한 번만). 선생님 PC의 PowerShell 에서 저장소 폴더로 이동해 실행:
+﻿# 푸시 알림 서버 설정 (한 번만). 저장소 폴더에서 PowerShell 로 실행:
 #   .\scripts\setup-push.ps1 -ProjectRef abcdefghijklmnop -ServiceAccount C:\경로\firebase-서비스계정.json
-# ProjectRef : Supabase 주소 https://[이 부분].supabase.co 의 앞부분
+# ProjectRef     : Supabase 주소 https://[이 부분].supabase.co 의 앞부분
 # ServiceAccount : Firebase 콘솔 → 프로젝트 설정 → 서비스 계정 → "새 비공개 키 생성" 으로 받은 JSON 파일
 param(
   [Parameter(Mandatory = $true)][string]$ProjectRef,
@@ -10,13 +10,22 @@ $ErrorActionPreference = 'Stop'
 
 if (-not (Test-Path $ServiceAccount)) { throw "서비스 계정 파일을 찾을 수 없어요: $ServiceAccount" }
 
-Write-Host '1/4 Supabase 로그인 (브라우저가 열려요)'
+Write-Host '1/4 Supabase 로그인 (브라우저가 열려요. 허용을 눌러 주세요)'
 npx --yes supabase login
 
 Write-Host '2/4 비밀 값 저장'
 $secret = -join ((48..57) + (97..122) | Get-Random -Count 40 | ForEach-Object { [char]$_ })
-$json = (Get-Content $ServiceAccount -Raw) -replace "\s*\r?\n\s*", ' '
-npx --yes supabase secrets set --project-ref $ProjectRef "PUSH_SECRET=$secret" "FIREBASE_SERVICE_ACCOUNT=$json"
+# 따옴표가 깨지지 않게 임시 파일로 넘기고, 끝나면 바로 지움
+$json = (Get-Content $ServiceAccount -Raw | ConvertFrom-Json | ConvertTo-Json -Compress)
+$envFile = Join-Path $env:TEMP 'class52-push-secrets.env'
+try {
+  $lines = @("PUSH_SECRET=$secret", "FIREBASE_SERVICE_ACCOUNT='$json'")
+  [System.IO.File]::WriteAllLines($envFile, $lines, (New-Object System.Text.UTF8Encoding($false)))
+  npx --yes supabase secrets set --project-ref $ProjectRef --env-file $envFile
+}
+finally {
+  if (Test-Path $envFile) { Remove-Item $envFile -Force }
+}
 
 Write-Host '3/4 발송 함수 올리기'
 npx --yes supabase functions deploy send-push --no-verify-jwt --project-ref $ProjectRef
