@@ -10,4 +10,4 @@ export const FIREBASE_CONFIG = {
 
 // Firebase 콘솔 → 프로젝트 설정 → 클라우드 메시징 → 웹 푸시 인증서의 "공개 키".
 // 비어 있으면 브라우저 알림 버튼이 보이지 않음
-export const VAPID_KEY = '';
+export const VAPID_KEY = 'BCwzSo_cExrGol-PWb4SdBFAbtZq7qpqnLN9XxgJipkTz0kX6QHKO6nk7E0ITq485xk-kyKT_5Cx4MCyj1XLdyI';
