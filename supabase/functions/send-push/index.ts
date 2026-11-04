@@ -49,6 +49,15 @@ async function accessToken(account: { client_email: string; private_key: string 
 }
 
 Deno.serve(async (request) => {
+  try {
+    return await handle(request);
+  } catch (error) {
+    // 원인을 응답에 남겨 DB의 net._http_response 에서 볼 수 있게 함 (비밀 값은 넣지 않음)
+    return new Response(`오류: ${(error as Error).message}`, { status: 500 });
+  }
+});
+
+async function handle(request: Request) {
   if (request.method !== 'POST' || request.headers.get('x-push-secret') !== Deno.env.get('PUSH_SECRET')) {
     return new Response('forbidden', { status: 403 });
   }
@@ -63,6 +72,7 @@ Deno.serve(async (request) => {
   const account = JSON.parse(Deno.env.get('FIREBASE_SERVICE_ACCOUNT')!);
   const bearer = await accessToken(account);
   const dead: string[] = [];
+  const failures: string[] = [];
 
   await Promise.all(
     tokens.map(async ({ token }) => {
@@ -81,8 +91,10 @@ Deno.serve(async (request) => {
         }),
       });
       if (response.status === 404) dead.push(token); // 앱을 지운 기기 (UNREGISTERED)
+      else if (!response.ok) failures.push(`${response.status} ${(await response.text()).slice(0, 200)}`);
     }),
   );
   if (dead.length) await admin.from('push_tokens').delete().in('token', dead);
-  return new Response(`sent ${tokens.length - dead.length}`);
-});
+  const sent = tokens.length - dead.length - failures.length;
+  return new Response(`sent ${sent}${failures.length ? ` / 실패 ${failures.length}: ${failures[0]}` : ''}`);
+}
